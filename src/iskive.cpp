@@ -139,17 +139,18 @@ int ibis::skive::write(const char* dt) const {
     }
     ibis::fileManager::instance().flushFile(fnm.c_str());
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) {
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing";
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
@@ -192,7 +193,7 @@ int ibis::skive::write(const char* dt) const {
 
 /// Write the content to a file opened by the caller.  This function uses
 /// 32-bit bitmap offsets.
-int ibis::skive::write32(int fdes) const {
+int ibis::skive::write32(gzFile fdes) const {
     if (vals.empty()) return -4;
     std::string evt = "skive";
     if (ibis::gVerbose > 0) {
@@ -301,7 +302,7 @@ int ibis::skive::write32(int fdes) const {
 
 /// Write the content to a file opened by the caller.  This function uses
 /// 64-bit bitmap offsets.
-int ibis::skive::write64(int fdes) const {
+int ibis::skive::write64(gzFile fdes) const {
     if (vals.empty()) return -4;
     std::string evt = "skive";
     if (ibis::gVerbose > 0) {
@@ -414,8 +415,8 @@ int ibis::skive::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- skive[" << col->partition()->name() << '.'
             << col->name() << "]::read failed to open " << fnm;

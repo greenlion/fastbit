@@ -231,8 +231,8 @@ const ibis::RIDSet* ibis::bundle::readRIDs(const char* dir,
     if (i < nbdl) { // open the rid file and read the selected segment
         ibis::RIDSet* res = new ibis::RIDSet;
         strcpy(fn+len, "-rids");
-        int fdes = UnixOpen(fn, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(fn, "rb");
+        if (fdes != Z_NULL) {
             LOGGER(errno != ENOENT || ibis::gVerbose > 10)
                 << "Warning -- bundle::readRIDs -- failed to open file \""
                 << fn << "\" ... "
@@ -1048,8 +1048,8 @@ void ibis::bundle1::write(const ibis::query& theQ) const {
     char* fn = new char[len+16];
     strcpy(fn, theQ.dir());
     strcat(fn, "bundles");
-    FILE* fptr = fopen(fn, "wb");
-    if (fptr == 0) {
+    gzFile fptr = gzopen(fn, "wb");
+    if (fptr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bundle1::write failed to open file \""
             << fn << "\" ... "
@@ -1057,9 +1057,9 @@ void ibis::bundle1::write(const ibis::query& theQ) const {
         return;
     }
 
-    IBIS_BLOCK_GUARD(fclose, fptr);
-    int ierr = fwrite(&tmp, sizeof(uint32_t), 1, fptr);
-    if (ierr != 1) {
+    IBIS_BLOCK_GUARD(gzclose, fptr);
+    int ierr = gzwrite(fptr, &tmp, sizeof(uint32_t));
+    if (ierr != sizeof(uint32_t)) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bundle1::write failed to the number of rows to "
             << fn;
@@ -1067,15 +1067,15 @@ void ibis::bundle1::write(const ibis::query& theQ) const {
     }
 
     tmp = 1;
-    ierr = fwrite(&tmp, sizeof(uint32_t), 1, fptr);
+    ierr = gzwrite(fptr, &tmp, sizeof(uint32_t));
     tmp = col->elementSize();
-    ierr = fwrite(&tmp, sizeof(uint32_t), 1, fptr);
+    ierr = gzwrite(fptr, &tmp, sizeof(uint32_t));
     ierr = col->write(fptr);
-    ierr = fwrite(starts->begin(), sizeof(uint32_t), starts->size(), fptr);
+    ierr = gzwrite(fptr, starts->begin(), sizeof(uint32_t) * starts->size());
 #if defined(FASTBIT_SYNC_WRITE)
-    (void)fflush(fptr);
+    gzflush(fptr, Z_FINISH);
 #endif
-    //ierr = fclose(fptr);
+    ierr = gzclose(fptr);
     delete [] fn;
     infile = true;
 } // ibis::bundle1::write
@@ -2485,8 +2485,8 @@ void ibis::bundles::write(const ibis::query& theQ) const {
     char* fn = new char[len+16];
     strcpy(fn, theQ.dir());
     strcat(fn, "bundles");
-    FILE* fptr = fopen(fn, "wb");
-    if (fptr == 0) {
+    gzFile fptr = gzopen(fn, "wb");
+    if (fptr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bundles::write failed to open file \""
             << fn << "\" ... "
@@ -2495,8 +2495,8 @@ void ibis::bundles::write(const ibis::query& theQ) const {
     }
 
     uint32_t i1, ncol = cols.size(), tmp = cols[0]->size();
-    int32_t ierr = fwrite(&tmp, sizeof(uint32_t), 1, fptr);
-    ierr += fwrite(&ncol, sizeof(uint32_t), 1, fptr);
+    int32_t ierr = gzwrite(fptr, &tmp, sizeof(uint32_t));
+    ierr += gzwrite(fptr, &ncol, sizeof(uint32_t));
     if (ierr < 2) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bundles::write failed to write number of rows "
@@ -2505,7 +2505,7 @@ void ibis::bundles::write(const ibis::query& theQ) const {
     }
     for (i1 = 0; i1 < ncol; ++ i1) { // element sizes
         tmp = cols[i1]->elementSize(); // ibis::colValue::elementSize
-        ierr = fwrite(&tmp, sizeof(uint32_t), 1, fptr);
+        ierr = gzwrite(fptr, &tmp, sizeof(uint32_t));
         LOGGER(cols[i1]->size() != cols[0]->size() && ibis::gVerbose >= 0)
             << "Warning -- invalid ibis::bundle object (cols[i1]->size("
             << cols[i1]->size() << ") != cols[0]->size("
@@ -2517,12 +2517,12 @@ void ibis::bundles::write(const ibis::query& theQ) const {
     }
 
     // the starting positions
-    ierr = fwrite(starts->begin(), sizeof(uint32_t), starts->size(),
-                  fptr);
+    ierr = gzwrite(fptr, starts->begin(), sizeof(uint32_t) * starts->size());
+                  
 #if defined(FASTBIT_SYNC_WRITE)
-    (void) fflush(fptr);
+    (void) gzflush(fptr, Z_FINAL);
 #endif
-    (void) fclose(fptr);
+    (void) gzclose(fptr);
     delete [] fn;
     infile = true;
 } // ibis::bundles::write

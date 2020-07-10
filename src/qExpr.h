@@ -230,7 +230,9 @@ protected:
     qRange(TYPE t) : qExpr(t) {};
 
 private:
+#pragma GCC diagnostic ignored "-Wextra"
     qRange(const qRange&) {}; // no copy constructor allowed, must use dup
+#pragma GCC diagnostic warning "-Wextra"
     qRange& operator=(const qRange&);
 }; // ibis::qRange
 
@@ -387,7 +389,7 @@ private:
 ///
 /// @note About the name: hod is a portable trough for carrying mortar,
 /// bricks, and so on.  We use it here as a short-hand for container.
-/// Since this class is not meant for user by others, this is a suitably
+/// Since this class is not meant for user by others, this is a suitable
 /// obscure name for it.
 class FASTBIT_CXX_DLLSPEC ibis::qIntHod : public ibis::qRange {
 public:
@@ -816,9 +818,11 @@ namespace ibis {
 	    // later to retrieve value from expr class).
 	    variable(const char* var)
 		: name(ibis::util::strnewdup(var)), myBar(0), varind(0) {}
+#pragma GCC diagnostic ignored "-Wextra"
 	    variable(const variable& v)
 		: name(ibis::util::strnewdup(v.name)), decor(v.decor),
                   myBar(v.myBar), varind(v.varind) {}
+#pragma GCC diagnostic warning "-Wextra"
 	    virtual ~variable() {delete [] name;}
 
 	    virtual TERM_TYPE termType() const {return VARIABLE;}
@@ -894,7 +898,7 @@ namespace ibis {
 	    /// 't' or 'T', or it equals to "1".
 	    virtual bool isTrue() const {
 		return(str != 0 && (*str == 't' || *str == 'T' ||
-				    (*str == '1' && *str == 0)));}
+				    (*str == '1' && *(str+1) == 0)));}
 
 	    virtual uint32_t nItems() const {return 1U;}
 	    virtual void print(std::ostream& out) const {out << str;}
@@ -1028,6 +1032,7 @@ namespace ibis {
 	    virtual ~customFunction1() {delete fun_;}
 	    customFunction1(const func1 &ft)
                 : fun_(ft.dup()) {}
+	    #pragma GCC diagnostic ignored "-Wextra"
 	    customFunction1(const customFunction1 &rhs)
                 : fun_(rhs.fun_->dup()) {
                 if (rhs.getLeft() != 0) {
@@ -1037,6 +1042,7 @@ namespace ibis {
                     setLeft(rhs.getRight()->dup());
                 }
             }
+	    #pragma GCC diagnostic warning "-Wextra"
 
 	    virtual customFunction1* dup() const {
 		return new customFunction1(*this);
@@ -1112,6 +1118,7 @@ namespace ibis {
 	    virtual ~stringFunction1() {delete fun_;}
 	    stringFunction1(const sfunc1 &ft)
                 : fun_(ft.dup()) {}
+	    #pragma GCC diagnostic ignored "-Wextra"
 	    stringFunction1(const stringFunction1 &rhs)
                 : fun_(rhs.fun_->dup()) {
                 if (rhs.getLeft() != 0) {
@@ -1121,6 +1128,7 @@ namespace ibis {
                     setLeft(rhs.getRight()->dup());
                 }
             }
+	    #pragma GCC diagnostic warning "-Wextra"
 
 	    virtual stringFunction1* dup() const {
 		return new stringFunction1(*this);

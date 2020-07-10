@@ -673,7 +673,7 @@ public:
     typedef std::map< const char*, column*, lessi > columnList;
 
     template <typename T> static int
-	writeColumn(int fdes, ibis::bitvector::word_t nold,
+	writeColumn(gzFile fdes, ibis::bitvector::word_t nold,
 		    ibis::bitvector::word_t nnew,
 		    ibis::bitvector::word_t voffset,
 		    const array_t<T>& vals, const T& fill,
@@ -685,14 +685,14 @@ public:
                             const std::vector<std::string>& vals,
                             ibis::bitvector& totmask,
                             const ibis::bitvector& newmask);
-    static int writeRaw(int bdes, int sdes, ibis::bitvector::word_t nold,
+    static int writeRaw(gzFile bdes, gzFile sdes, ibis::bitvector::word_t nold,
 			ibis::bitvector::word_t nnew,
                         ibis::bitvector::word_t voffset,
 			const ibis::array_t<unsigned char>& bytes,
 			const ibis::array_t<int64_t>& starts,
 			ibis::bitvector& totmask,
 			const ibis::bitvector& newmask);
-    static int writeOpaques(int bdes, int sdes,
+    static int writeOpaques(gzFile bdes, gzFile sdes,
 			    ibis::bitvector::word_t nold,
 			    ibis::bitvector::word_t nnew,
                             ibis::bitvector::word_t voffset,
@@ -1637,7 +1637,7 @@ protected:
     uint32_t position;
     std::vector<const ibis::column*> cols;
     std::vector<ibis::fileManager::storage*> stores;
-    std::vector<int> fdes;
+    std::vector<gzFile> fdes;
 }; // ibis::part::barrel
 
 /// To read variables in certain order.
@@ -1660,7 +1660,7 @@ private:
     const ibis::roster &_roster;
 
     template <class T>
-    uint32_t seekValue(int fd, const T &val) const;
+    uint32_t seekValue(gzFile fd, const T &val) const;
     template <class T>
     uint32_t seekValue(const array_t<T>&arr, const T &val) const;
 

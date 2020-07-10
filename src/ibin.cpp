@@ -468,8 +468,8 @@ ibis::index* ibis::bin::dup() const {
 int ibis::bin::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0)
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL)
         return -1;
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
@@ -514,7 +514,7 @@ int ibis::bin::read(const char* f) {
     begin = 8+2*sizeof(uint32_t);
     end = 8+2*sizeof(uint32_t)+(nobs+1)*header[6];
     ierr = initOffsets(fdes, header[6], begin, nobs);
-    if (ierr < 0)
+    if (ierr == Z_NULL)
         return ierr;
 
     // read bounds
@@ -553,9 +553,9 @@ int ibis::bin::read(const char* f) {
 /// Read from a file starting from an arbitrary @c start position.  This is
 /// intended to be used by multi-level indices.  The size of bitmap offsets
 /// are defined in header[6] and full index type is defined in header[5].
-int ibis::bin::read(int fdes, size_t start,
+int ibis::bin::read(gzFile fdes, size_t start,
                     const char *fn, const char *header) {
-    if (fdes < 0) return -1;
+    if (fdes == Z_NULL) return -1;
     if (start != static_cast<size_t>(UnixSeek(fdes, start, SEEK_SET)))
         return -4;
 
@@ -1872,8 +1872,8 @@ void ibis::bin::binningT(const char* f) {
     }
 
     fnm += ".bin";
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes >= 0) {
+    gzFile fdes = UnixOpen(fnm.c_str(), "wb");
+    if (fdes != Z_NULL) {
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
 #endif
@@ -1998,8 +1998,8 @@ long ibis::bin::binOrderT(const char* basename) const {
     }
 
     fnm += ".bin";
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fnm.c_str(), "wb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > -1)
             << "bin::binOrder is failed to open file \"" << fnm
             << "\" for writing";
@@ -2070,8 +2070,8 @@ long ibis::bin::checkBin0(const ibis::qRange& cmp, uint32_t jbin,
     }
 
     int32_t pos[2];
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) { // failed to open file
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) { // failed to open file
         ierr = -2;
         return ierr;
     }
@@ -2153,8 +2153,8 @@ long ibis::bin::checkBin1(const ibis::qRange& cmp, uint32_t jbin,
     }
 
     int32_t pos[2];
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) { // failed to open file
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) { // failed to open file
         ierr = -2;
         return ierr;
     }
@@ -4440,11 +4440,12 @@ void ibis::bin::addBounds(double lbd, double rbd, uint32_t nbins,
             lbd += diff;
         }
     }
+} // ibis::bin::addBounds
 
-    if (nbins == 0)
-        nbins = IBIS_DEFAULT_NBINS;
-    return nbins;
-} // ibis::bin::parseNbins
+/// The optional argument @c nbins can either be set outside or set to
+/// be the return value of function parseNbins.
+void ibis::bin::scanAndPartition(const char* f, unsigned eqw, uint32_t nbins) {
+    if (col == 0) return;
 
     histogram hist; // a histogram
     if (nbins <= 1)
@@ -4636,14 +4637,14 @@ void ibis::bin::readBinBoundaries(const char *fnm, uint32_t nb) {
     if (fnm == 0 || *fnm == 0) return;
 
     char buf[MAX_LINE];
-    FILE *fptr = fopen(fnm, "r");
-    if (fptr == 0) {
+    gzFile fptr = gzopen(fnm, "r");
+    if (fptr == Z_NULL) {
         if (col != 0 && col->partition() != 0 &&
             col->partition()->currentDataDir() != 0) {
             std::string fullname = col->partition()->currentDataDir();
             fullname += FASTBIT_DIRSEP;
             fullname += fnm;
-            fptr = fopen(fullname.c_str(), "r");
+            fptr = gzopen(fullname.c_str(), "r");
             if (fptr == 0) {
                 col->logWarning("bin::readBinBoundaries",
                                 "failed to open file \"%s\"",
@@ -4654,7 +4655,7 @@ void ibis::bin::readBinBoundaries(const char *fnm, uint32_t nb) {
     }
 
     uint32_t cnt = 0;
-    while (fgets(buf, MAX_LINE, fptr)) {
+    while (gzgets(fptr, buf, MAX_LINE)) {
         char *tmp = strchr(buf, '#');
         if (tmp != 0) *tmp = 0;
         double val = strtod(buf, &tmp);
@@ -4664,7 +4665,7 @@ void ibis::bin::readBinBoundaries(const char *fnm, uint32_t nb) {
             if (nb > 0 && cnt >= nb) break;
         }
     } // while (fgets...
-    fclose(fptr);
+    gzclose(fptr);
     LOGGER(ibis::gVerbose > 3)
         << "bin::readBinBoundaries got " << cnt << " value(s) from " << fnm;
 } // ibis::bin::readBinBoundaries
@@ -5586,11 +5587,11 @@ int ibis::bin::write(const char* dt) const {
 #else
     const bool useoffset64 = (8+getSerialSize() >= 0x80000000UL);
 #endif
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) {
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             const char* mesg;
             if (errno != 0)
                 mesg = strerror(errno);
@@ -5602,12 +5603,13 @@ int ibis::bin::write(const char* dt) const {
             return -5;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -5652,7 +5654,7 @@ int ibis::bin::write(const char* dt) const {
 } // ibis::bin::write
 
 /// Write the content to a file already open.
-int ibis::bin::write32(int fdes) const {
+int ibis::bin::write32(gzFile fdes) const {
     if (nobs <= 0) return -1;
     std::string evt = "bin";
     if (col != 0 && ibis::gVerbose > 1) {
@@ -5742,7 +5744,7 @@ int ibis::bin::write32(int fdes) const {
 } // ibis::bin::write32
 
 /// write the content to a file already open.
-int ibis::bin::write64(int fdes) const {
+int ibis::bin::write64(gzFile fdes) const {
     if (nobs <= 0) return -1;
     std::string evt = "bin";
     if (col != 0 && ibis::gVerbose > 1) {
@@ -11821,8 +11823,8 @@ long ibis::bin::mergeValues(const ibis::qContinuousRange& cmp,
     dataFileName(fnm);
     fnm += ".bin";
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bin::mergeValues failed to open \""
             << fnm << " of column " << (col ? col->name() : "?");
@@ -11912,8 +11914,8 @@ long ibis::bin::mergeValues(const ibis::qContinuousRange& cmp,
     dataFileName(fnm);
     fnm += ".bin";
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- bin::mergeValues failed to open \""
             << fnm << " of column " << (col ? col->name() : "?");

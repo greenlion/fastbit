@@ -156,23 +156,24 @@ int ibis::fade::write(const char* dt) const {
     if (fname != 0 || str != 0)
         activate(); // retrieve all bitvectors
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) { // try again
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) { // try again
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing";
             return -2;
         }
-    }
+    }  
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -218,7 +219,7 @@ int ibis::fade::write(const char* dt) const {
 } // ibis::fade::write
 
 /// Write the content to a file already opened.
-int ibis::fade::write32(int fdes) const {
+int ibis::fade::write32(gzFile fdes) const {
     if (vals.empty()) return -1;
     if (fname != 0 || str != 0)
         activate(); // retrieve all bitvectors
@@ -327,7 +328,7 @@ int ibis::fade::write32(int fdes) const {
 } // ibis::fade::write32
 
 /// Write the content to a file already opened.
-int ibis::fade::write64(int fdes) const {
+int ibis::fade::write64(gzFile fdes) const {
     if (vals.empty()) return -1;
     if (fname != 0 || str != 0)
         activate(); // retrieve all bitvectors
@@ -449,8 +450,8 @@ int ibis::fade::read(const char* f) {
     indexFileName(fnm, f);
     if (fname != 0 && fnm.compare(fname) == 0)
         return 0;
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0)
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL)
         return -1;
 
     char header[8];

@@ -31,6 +31,7 @@
 #include <cctype>       // std::tolower
 
 #include <stdio.h>      // popen, pclose
+#include <zlib.h>
 #include <stdlib.h>     // rand
 #include <stdarg.h>     // vsprintf, ...
 #include <signal.h>     // SIGINT
@@ -2282,13 +2283,13 @@ void ibis::part::sortRIDs() const {
 
     // write the sorted rids into -rids.srt
     uint32_t buf[2];
-    int fdes = UnixOpen(name, OPEN_WRITENEW, OPEN_FILEMODE);
+    int fdes = open(name, OPEN_WRITENEW, OPEN_FILEMODE);
     if (fdes < 0) {
         logWarning("sortRIDs", "could not open file %s for writing ... %s",
                    name, (errno ? strerror(errno) : "no free stdio stream"));
         return;
     }
-    IBIS_BLOCK_GUARD(UnixClose, fdes);
+    IBIS_BLOCK_GUARD(close, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
@@ -2297,8 +2298,8 @@ void ibis::part::sortRIDs() const {
     for (RIDmap::const_iterator it = rmap.begin(); it != rmap.end(); ++it) {
         buf[0] = (*it).first->num.run;
         buf[1] = (*it).first->num.event;
-        off_t ierr = UnixWrite(fdes, buf, nbuf);
-        ierr += UnixWrite(fdes, &((*it).second), sizeof(uint32_t));
+        off_t ierr = write(fdes, buf, nbuf);
+        ierr += write(fdes, &((*it).second), sizeof(uint32_t));
         if (ierr <= 0 ||
             static_cast<uint32_t>(ierr) != nbuf+sizeof(uint32_t)) {
             logWarning("sortRIDs", "could not write run (%lu, %lu, %lu) to "
@@ -8362,8 +8363,8 @@ long ibis::part::doCompare(const char* file,
     if (ibis::gVerbose > 3)
         timer.start(); // start the timer
 
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::doCompare could not open file \"" << file
             << '"';
@@ -8607,8 +8608,8 @@ long ibis::part::doCompare(const char* file,
         timer.start(); // start the timer
 
     res.clear();
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::doCompare could not open file \"" << file
             << '"';
@@ -8839,8 +8840,8 @@ long ibis::part::doCompare(const char* file,
 
     res.clear();
     hits.clear();
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::doCompare failed to open file \"" << file
             << '"';
@@ -9512,8 +9513,8 @@ long ibis::part::negativeCompare(const char* file,
         timer.start(); // start the timer
 
     hits.clear(); // clear the existing content
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::negativeCompare could not open file \""
             << file << '"';
@@ -9878,8 +9879,8 @@ long ibis::part::doCompare(const char* file,
     if (ibis::gVerbose > 3)
         timer.start(); // start the timer
 
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::doCompare could not open file \""
             << file << '"';
@@ -10205,8 +10206,8 @@ long ibis::part::negativeCompare(const char* file,
         timer.start(); // start the timer
 
     hits.clear(); // clear the existing content
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::negativeCompare could not open file \""
             << file << '"';
@@ -10569,8 +10570,8 @@ long ibis::part::doCompare(const char* file,
     if (ibis::gVerbose > 3)
         timer.start(); // start the timer
 
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::doCompare could not open file \""
             << file << '"';
@@ -10893,8 +10894,8 @@ long ibis::part::negativeCompare(const char* file,
         timer.start(); // start the timer
 
     hits.clear(); // clear the existing content
-    int fdes = UnixOpen(file, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(file, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- part::negativeCompare could not open file \""
             << file << '"';
@@ -12109,6 +12110,7 @@ long ibis::part::doScan(const array_t<float> &vals,
         return hits.sloppyCount();
     }
 
+    const bool uncomp = ((mask.size() >> 8) < mask.cnt());
     switch (lop) {
     case ibis::qExpr::OP_LT: {
         switch (rop) {
@@ -16296,8 +16298,7 @@ long ibis::part::doScan(const array_t<float> &vals,
 } // ibis::part::doScan
 
 /// Examine the range condition with in memory values.
-/// A specialization of the template for float arrays.  All comparisons are
-/// performed as doubles.
+/// A specialization of the template for double values.
 template <>
 long ibis::part::doScan(const array_t<double> &vals,
                         const ibis::qContinuousRange &rng,
@@ -19178,7 +19179,7 @@ double ibis::part::getColumnSum(const char *name) const {
 /// Return the number of elements written or an error code.  The error code
 /// is always less than 0.
 template <typename T>
-int ibis::part::writeColumn(int fdes,
+int ibis::part::writeColumn(gzFile fdes,
                             ibis::bitvector::word_t nold,
                             ibis::bitvector::word_t nnew,
                             ibis::bitvector::word_t voffset,
@@ -19186,7 +19187,7 @@ int ibis::part::writeColumn(int fdes,
                             const T& fill,
                             ibis::bitvector& totmask,
                             const ibis::bitvector& newmask) {
-    const uint32_t elem = sizeof(T);
+    const int32_t elem = sizeof(T);
     off_t pos = UnixSeek(fdes, 0, SEEK_END);
     if (pos < 0) {
         LOGGER(ibis::gVerbose > 0)
@@ -19262,14 +19263,14 @@ int ibis::part::writeStrings(const char *fnm,
         }
         evt += "...)";
     }
-    FILE *fptr = fopen(fnm, "ab");
-    if (fptr == 0) {
+    gzFile fptr = gzopen(fnm, "ab");
+    if (fptr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " could not open the named file: "
             << (errno ? strerror(errno) : "no free stdio stream");
         return -1;
     }
-    off_t pos = ftell(fptr); // pos == end of file
+    off_t pos = gztell(fptr); // pos == end of file
     if (pos < 0) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " could not seek to the end of the file";
@@ -19281,23 +19282,23 @@ int ibis::part::writeStrings(const char *fnm,
     totmask.adjustSize(nold, nold);
     if (vals.size() >= nnew+voffset) {
         for (uint32_t j = voffset; j < voffset+nnew; ++ j)
-            cnt += (0 < fwrite(vals[j].c_str(), vals[j].size()+1, 1, fptr));
+            cnt += (0 < gzwrite(fptr, vals[j].c_str(), vals[j].size()+1));
         nnew0 = cnt;
     }
     else {
         for (uint32_t j = voffset; j < vals.size(); ++ j)
-            cnt += (0 < fwrite(vals[j].c_str(), vals[j].size()+1, 1, fptr));
+            cnt += (0 < gzwrite(fptr, vals[j].c_str(), vals[j].size()+1));
         nnew0 = cnt;
         char buf[MAX_LINE];
         memset(buf, 0, MAX_LINE);
         for (uint32_t j = (vals.size()>voffset?vals.size()-voffset:0);
              j < nnew; j += MAX_LINE)
-            cnt += fwrite(buf, 1, (j+MAX_LINE<=nnew?MAX_LINE:nnew-j), fptr);
+            cnt += gzwrite(fptr, buf, (j+MAX_LINE<=nnew?MAX_LINE:nnew-j));
     }
 #if defined(FASTBIT_SYNC_WRITE)
-    (void) fflush(fptr);
+    (void) gzflush(fptr, Z_FINAL);
 #endif
-    (void) fclose(fptr);
+    (void) gzclose(fptr);
 
     totmask += newmask;
     totmask.adjustSize(nold+nnew0, nnew+nold);
@@ -19324,7 +19325,7 @@ int ibis::part::writeStrings(const char *fnm,
 ///
 /// Return the number of raw objects written to the open file or an error
 /// code.  Note that the error code is always less than 0.
-int ibis::part::writeRaw(int bdes, int sdes,
+int ibis::part::writeRaw(gzFile bdes, gzFile sdes,
                          ibis::bitvector::word_t nold,
                          ibis::bitvector::word_t nnew,
                          ibis::bitvector::word_t voffset,
@@ -19496,7 +19497,7 @@ int ibis::part::writeRaw(int bdes, int sdes,
 ///
 /// Return the number of raw objects written to the open file or an error
 /// code.  Note that the error code is always less than 0.
-int ibis::part::writeOpaques(int bdes, int sdes,
+int ibis::part::writeOpaques(gzFile bdes, gzFile sdes,
                              ibis::bitvector::word_t nold,
                              ibis::bitvector::word_t nnew,
                              ibis::bitvector::word_t voffset,
@@ -19765,7 +19766,7 @@ long ibis::part::barrel::open(const ibis::part *t) {
     cols.resize(size());
     for (uint32_t i = 0; i < size(); ++ i) {
         stores[i] = 0;
-        fdes[i] = -1;
+        fdes[i] = Z_NULL;
         cols[i] = 0;
     }
 
@@ -19810,8 +19811,8 @@ long ibis::part::barrel::open(const ibis::part *t) {
                 stores[i]->beginUse();
             }
             else { // getFile failed, open the name file
-                fdes[i] = UnixOpen(dfn.c_str(), OPEN_READONLY);
-                if (fdes[i] < 0) {
+                fdes[i] = UnixOpen(dfn.c_str(), "rb");
+                if (fdes[i] == Z_NULL) {
                     LOGGER(ibis::gVerbose > 0)
                         << "Warning -- barrel::open could not open file \""
                         << dfn.c_str() << "\"";
@@ -19875,7 +19876,7 @@ long ibis::part::barrel::open(const ibis::part *t) {
                 }
             }
         }
-        else if (fdes[0] >= 0) {
+        else if (fdes[0] != Z_NULL) {
             lg() << "successfully opened file " << name(0)
                  << " with descriptor " << fdes[0];
         }
@@ -19897,7 +19898,7 @@ long ibis::part::barrel::close() {
             stores[i]->endUse();
     }
     for (uint32_t i = 0; i < fdes.size(); ++ i)
-        if (fdes[i] >= 0)
+        if (fdes[i] != Z_NULL)
             UnixClose(fdes[i]);
     stores.clear();
     fdes.clear();
@@ -20067,7 +20068,7 @@ long ibis::part::barrel::seek(uint32_t pos) {
     long ierr = 0;
     uint32_t i = 0;
     while (ierr == 0 && i < size()) {
-        if (fdes[i] >= 0) {
+        if (fdes[i] != Z_NULL) {
             ierr = UnixSeek(fdes[i], cols[i]->elementSize()*pos, SEEK_SET);
             if (ierr != (int32_t)-1)
                 ierr = 0;
@@ -20077,7 +20078,7 @@ long ibis::part::barrel::seek(uint32_t pos) {
     if (ierr < 0) { // rollback the file pointers
         while (i > 0) {
             -- i;
-            if (fdes[i] >= 0)
+            if (fdes[i] != Z_NULL)
                 ierr = UnixSeek(fdes[i], cols[i]->elementSize()*position,
                                 SEEK_SET);
         }
@@ -20114,7 +20115,7 @@ long ibis::part::vault::open(const ibis::part *t) {
     cols.resize(size());
     for (uint32_t i = 0; i < size(); ++ i) {
         stores[i] = 0;
-        fdes[i] = -1;
+        fdes[i] = Z_NULL;
         cols[i] = 0;
     }
 
@@ -20146,8 +20147,8 @@ long ibis::part::vault::open(const ibis::part *t) {
             stores[0]->beginUse();
         }
         else { // getFile failed, open the name file
-            fdes[0] = UnixOpen(dfn.c_str(), OPEN_READONLY);
-            if (fdes[0] < 0) {
+            fdes[0] = UnixOpen(dfn.c_str(), "rb");
+            if (fdes[0] == Z_NULL) {
                 t->logWarning("vault::open",
                               "could not open file \"%s\"", dfn.c_str());
                 fdes.resize(0);
@@ -20208,8 +20209,8 @@ long ibis::part::vault::open(const ibis::part *t) {
             stores[i]->beginUse();
         }
         else { // getFile failed, open the name file
-            fdes[i] = UnixOpen(dfn.c_str(), OPEN_READONLY);
-            if (fdes[i] < 0) {
+            fdes[i] = UnixOpen(dfn.c_str(), "rb");
+            if (fdes[i] == Z_NULL) {
                 t->logWarning("vault::open",
                               "could not open file \"%s\"", dfn.c_str());
                 fdes.resize(i);
@@ -20407,7 +20408,7 @@ long ibis::part::vault::seek(uint32_t pos) {
     long ierr = 0;
     if (pos != position) {
         if (pos < _roster.size()) { // good
-            if (fdes[0] >= 0)
+            if (fdes[0] != Z_NULL)
                 ierr = UnixSeek(fdes[0], cols[0]->elementSize()*pos,
                                 SEEK_SET);
             if (ierr == 0)
@@ -20494,7 +20495,7 @@ long ibis::part::vault::seek(double val) {
 /// Can not fit the value into memory, has to read one value from the file
 /// one at a time to do the comparison
 template <class T>
-uint32_t ibis::part::vault::seekValue(int fd, const T &val) const {
+uint32_t ibis::part::vault::seekValue(gzFile fd, const T &val) const {
     long ierr;
     uint32_t i = 0;
     uint32_t j = _roster.size();
@@ -20989,46 +20990,46 @@ ibis::part::doCompare<signed char>
  const ibis::bitvector&, ibis::bitvector&);
 
 template int ibis::part::writeColumn<ibis::rid_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<ibis::rid_t>&, const ibis::rid_t&, ibis::bitvector&,
  const ibis::bitvector&);
 template int ibis::part::writeColumn<signed char>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<signed char>&, const signed char&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<unsigned char>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<unsigned char>&, const unsigned char&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<int16_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<int16_t>&, const int16_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<uint16_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<uint16_t>&, const uint16_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<int32_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<int32_t>&, const int32_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<uint32_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<uint32_t>&, const uint32_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<int64_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<int64_t>&, const int64_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<uint64_t>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<uint64_t>&, const uint64_t&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<float>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<float>&, const float&,
  ibis::bitvector&, const ibis::bitvector&);
 template int ibis::part::writeColumn<double>
-(int, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
+(gzFile, ibis::bitvector::word_t, ibis::bitvector::word_t, ibis::bitvector::word_t,
  const array_t<double>&, const double&,
  ibis::bitvector&, const ibis::bitvector&);

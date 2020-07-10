@@ -21,7 +21,8 @@
 
 #include <typeinfo>     // typeid
 #include <string>       // std::string
-#include <stdio.h>      // fopen, fread, remove
+#include <stdio.h>      // remove
+#include <zlib.h>
 #include <stdlib.h>     // malloc, free
 #include <sys/stat.h>   // stat, open
 #include <time.h>
@@ -38,6 +39,7 @@
 #elif HAVE_MMAP
 #  include <sys/mman.h> // mmap
 #endif
+
 #if defined(unix) && !defined(_WIN32)
 #include <sys/resource.h>       // getrlimit
 #endif
@@ -528,7 +530,7 @@ ibis::fileManager& ibis::fileManager::instance() {
 /// \arg fileManager.maxOpenFiles This file manager will keep the number of
 /// open files below this specified maximum.  Note that FastBit usually
 /// invokes the lower level function open, which typical can use more file
-/// handles than the higher level ones such as fopen.  If not specified, it
+/// handles than the higher level ones such as gzopen.  If not specified, it
 /// will use three quarters of maximum file halder defined by _SC_OPEN_MAX.
 ///
 /// \arg fileManager.minMapSize The minimal size of a file before FastBit
@@ -923,6 +925,7 @@ int ibis::fileManager::getFile(const char* name, storage **st,
     ibis::horometer timer;
     if (ibis::gVerbose > 7)
         timer.start();
+
 #if defined(HAVE_FILE_MAP)
     // now we can ask the question: "to map or not to map?"
     size_t sz = minMapSize;
@@ -999,6 +1002,7 @@ int ibis::fileManager::getFile(const char* name, storage **st,
     }
     tmp->doRead(name);
 #endif
+
     if (tmp->size() == bytes) {
         recordFile(tmp);
         LOGGER(ibis::gVerbose > 4)
@@ -1121,6 +1125,7 @@ int ibis::fileManager::tryGetFile(const char* name, storage **st,
     if (ibis::gVerbose > 7)
         timer.start();
     // "to map or not to map", that is the question
+
 #if defined(HAVE_FILE_MAP)
     size_t sz = minMapSize;
     if (mapped.size() > (maxOpenFiles >> 1)) {
@@ -1245,7 +1250,7 @@ int ibis::fileManager::tryGetFile(const char* name, storage **st,
 /// segement is 4 * FASTBIT_MIN_MAP_SIZE and the number of mapped files is
 /// less than half of the maxOpenFiles.
 ibis::fileManager::storage*
-ibis::fileManager::getFileSegment(const char* name, const int fdes,
+ibis::fileManager::getFileSegment(const char* name, const gzFile fdes,
                                   const off_t b, const off_t e) {
 #if DEBUG+0 > 1 || _DEBUG+0 > 1
     LOGGER(ibis::gVerbose > 5)
@@ -1984,7 +1989,7 @@ ibis::fileManager::storage::storage(const char* fname,
 } // ibis::fileManager::storage::storage
 
 /// Constructor.  Read part of a open file, from [begin, end).  The file 
-ibis::fileManager::storage::storage(const int fdes,
+ibis::fileManager::storage::storage(const gzFile fdes,
                                     const off_t begin,
                                     const off_t end)
     : name(0), m_begin(0), m_end(0), nacc(0), nref() {
@@ -2330,8 +2335,8 @@ off_t ibis::fileManager::storage::read(const char* fname,
             << end << ")";
         evt += oss.str();
     }
-    int fdes = UnixOpen(fname, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 2)
             << "Warning -- " << evt << " failed to open the named file";
         return -2;
@@ -2381,7 +2386,7 @@ off_t ibis::fileManager::storage::read(const char* fname,
 } // ibis::fileManager::storage::read
 
 /// Read part of a open file [begin, end).  Return the number of bytes read.
-off_t ibis::fileManager::storage::read(const int fdes,
+off_t ibis::fileManager::storage::read(const gzFile fdes,
                                        const off_t begin,
                                        const off_t end) {
     off_t nread = 0;
@@ -2440,8 +2445,8 @@ off_t ibis::fileManager::storage::read(const int fdes,
 
 void ibis::fileManager::storage::write(const char* file) const {
     size_t n, i;
-    FILE *in = fopen(file, "wb");
-    if (in == 0) {
+    gzFile in = gzopen(file, "wb");
+    if (in == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- storage::write failed to open file \""
             << file << "\" ... "
@@ -2450,8 +2455,8 @@ void ibis::fileManager::storage::write(const char* file) const {
     }
 
     n = m_end - m_begin;
-    i = fwrite(static_cast<void*>(m_begin), 1, n, in);
-    fclose(in); // close the file
+    i = gzwrite(in, static_cast<void*>(m_begin), n);
+    gzclose(in); // close the file
     if (i != n) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- storage::write expects to write "
@@ -2495,6 +2500,7 @@ void ibis::fileManager::storage::endUse() {
 /// Constructor.
 ibis::fileManager::roFile::roFile()
     : storage(), opened(0), lastUse(0), mapped(0) {
+
 #if defined(_WIN32) && defined(_MSC_VER)
     fdescriptor = INVALID_HANDLE_VALUE;
     fmap = INVALID_HANDLE_VALUE;
@@ -2504,6 +2510,7 @@ ibis::fileManager::roFile::roFile()
     fsize = 0;
     map_begin = 0;
 #endif
+
 }
 
 /// Start using a file.  Increments the active reference.
@@ -2565,18 +2572,20 @@ void ibis::fileManager::roFile::clear() {
 
     size_t sz = size();
     ibis::fileManager::decreaseUse(sz, evt.c_str());
-    if (mapped == 0) {
-        free(m_begin);
-    }
-    else {
+   if (mapped == 0) {
+     free(m_begin);
+   }
+   else {
+
 #if defined(_WIN32) && defined(_MSC_VER)
         UnmapViewOfFile(map_begin);
         CloseHandle(fmap);
         CloseHandle(fdescriptor);
 #elif (HAVE_MMAP+0 > 0)
         munmap((caddr_t)map_begin, fsize);
-        UnixClose(fdescriptor);
+        close(fdescriptor);
 #endif
+
     }
 
     if (name != 0) {
@@ -2626,6 +2635,7 @@ void ibis::fileManager::roFile::printBody(std::ostream& out) const {
             out << ", 1st 64 bits = " << std::hex
                 << *reinterpret_cast<uint64_t*>(m_begin) << std::dec;
     }
+
 #if (HAVE_MMAP+0 > 0)
     if (fdescriptor >= 0) {
         out << "\nfile descriptor " << fdescriptor
@@ -2639,6 +2649,7 @@ void ibis::fileManager::roFile::printBody(std::ostream& out) const {
             << "\nbase address    " << map_begin;
     }
 #endif
+
     out << "\nmapped          " << (mapped?"y":"n")
         << "\topened at       " << tstr0
         << "\tlast used at    " << tstr1
@@ -2687,8 +2698,8 @@ void ibis::fileManager::roFile::doRead(const char* file) {
         return;
     }
 
-    int in = UnixOpen(file, OPEN_READONLY);
-    if (in < 0) {
+    gzFile in = UnixOpen(file, "rb");
+    if (in == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to open file \"" << file
             << "\" ... " << (errno ? strerror(errno) : "no free stdio stream");
@@ -2743,8 +2754,8 @@ void ibis::fileManager::roFile::doRead(const char* file, off_t b, off_t e) {
 
     int64_t i;
     const int64_t n = e - b;
-    int in = UnixOpen(file, OPEN_READONLY);
-    if (in < 0) {
+    gzFile in = UnixOpen(file, "rb");
+    if (in == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- roFile::read failed to open file \""
             << file << "\" ... "
@@ -2894,6 +2905,7 @@ void ibis::fileManager::rofSegment::printStatus(std::ostream& out) const {
 /// read_only (@c opt = 0) mode or read_write (@c opt != 0) mode.
 /// @note It assumes the current object contain no valid information.  The
 /// caller is responsible to calling function @c clear if necessary.
+
 #if defined(_WIN32) && defined(_MSC_VER)
 void ibis::fileManager::roFile::doMap(const char *file, off_t b, off_t e,
                                       int opt) {

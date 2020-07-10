@@ -99,14 +99,14 @@ protected:
          std::equal_to<const char*> > MYMAP;
     MYMAP key_;
 
-    int  readRaw(const char*, FILE *);
-    int  readKeys0(const char*, FILE *);
-    int  readKeys1(const char*, FILE *);
-    int  readKeys2(const char*, FILE *);
+    int  readRaw(const char*, gzFile);
+    int  readKeys0(const char*, gzFile);
+    int  readKeys1(const char*, gzFile);
+    int  readKeys2(const char*, gzFile);
     void mergeBuffers() const;
-    int  writeKeys(FILE*, uint32_t, array_t<uint64_t>&,
+    int  writeKeys(gzFile, uint32_t, array_t<uint64_t>&,
                    array_t<uint32_t>&) const;
-    int  writeBuffer(FILE*, uint32_t, array_t<uint64_t>&,
+    int  writeBuffer(gzFile, uint32_t, array_t<uint64_t>&,
                      array_t<uint32_t>&) const;
 
 private:

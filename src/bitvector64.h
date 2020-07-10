@@ -117,7 +117,7 @@ public:
     void read(const char *fn);
     /// Write the bit vector to a file.
     void write(const char *fn) const;
-    void write(FILE* fptr) const;
+    void write(gzFile fptr) const;
     /// Write the bit vector to an array_t<word_t>.
     void write(array_t<word_t>& arr) const;
 

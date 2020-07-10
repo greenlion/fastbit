@@ -467,8 +467,8 @@ long ibis::part::writeValues(const char *fname,
     evt += fname;
     evt += ')';
 
-    int fdes = UnixOpen(fname, OPEN_READWRITE, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb+");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to open "
             << fname << " for writing reordered values";
@@ -543,8 +543,8 @@ long ibis::part::reorderValues(const char *fname,
     evt += ">(";
     evt += fname;
     evt += ')';
-    int fdes = UnixOpen(fname, OPEN_READWRITE, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb+");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << evt << " -- failed to open file " << fname
             << " for writing reordered values";

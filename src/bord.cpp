@@ -119,15 +119,6 @@ ibis::bord::bord(const char *tn, const char *td, uint64_t nr,
             }
         }
     }
-
-    amask.set(1, nEvents);
-    state = ibis::part::STABLE_STATE;
-    LOGGER(ibis::gVerbose > 1)
-        << "Constructed in-memory data partition "
-        << (m_name != 0 ? m_name : "<unnamed>") << " -- " << m_desc
-        << " -- with " << columns.size() << " column"
-        << (columns.size() > 1U ? "s" : "") << " and " << nEvents
-        << " row" << (nEvents>1U ? "s" : "");
 } // ibis::bord::bord
 
 /// Constructor.  Produce a partition from the list of columns.  The number
@@ -396,18 +387,15 @@ ibis::bord::bord(const char *tn, const char *td,
 /// Constructor.  It produces an empty data partition for storing values to
 /// be selected by the select clause.  The reference data partition list is
 /// used to determine the data types.  For columns, the type is determined
-/// by the first data partition in the list that has the matching name.
-/// However, for categorical values it checks to see if all the data
-/// partitions have the same dictionary before deciding what type to use.
-/// If the data partitions have the same dictionary, then it uses an
-/// integer representation for the column, otherwise it keeps the strings
-/// explcitly.  Normally, we would expect the integer reprepresentation to
-/// be more compact and more efficient to use.
+/// by the first data partition in the list.  However, for categorical
+/// values it checks to see if all the data partitions have the same
+/// dictionary before deciding what type to use.  If the data partitions
+/// have the same dictionary, then it uses an integer representation for
+/// the column, otherwise it keeps the strings explcitly.  Normally, we
+/// would expect the integer reprepresentation to be more compact and more
+/// efficient to use.
 ///
 /// @note The list of partitions, ref, can not be empty.
-///
-/// @note If the given column name does not appear in any of the given
-/// partitions, this function will throw an exception.
 ibis::bord::bord(const char *tn, const char *td,
                  const ibis::selectClause &sc, const ibis::constPartList &ref)
     : ibis::part("in-core") {
@@ -465,7 +453,7 @@ ibis::bord::bord(const char *tn, const char *td,
             else { // normal name
                 const ibis::column* refcol = 0;
                 for (unsigned i = 0; refcol == 0 && i < ref.size(); ++ i) {
-                    refcol = ref[i]->getColumn(var.variableName());
+                    refcol = ref[0]->getColumn(var.variableName());
                     if (refcol == 0) {
                         size_t nch = std::strlen(ref[i]->name());
                         if (0 == strnicmp(ref[i]->name(), vname, nch) &&
@@ -2775,14 +2763,14 @@ int ibis::bord::backup(const char* dir, const char* tname,
                 "file \"" << dict << "\", ierr = " << ierr;
             cnm += ".int";
         }
-        int fdes = UnixOpen(cnm.c_str(), OPEN_WRITEADD, OPEN_FILEMODE);
-        if (fdes < 0) {
+        gzFile fdes = gzopen(cnm.c_str(), "ab+");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose >= 0)
                 << "bord::backup(" << dir << ") failed to open file "
                 << cnm << " for writing";
             return -4;
         }
-        IBIS_BLOCK_GUARD(UnixClose, fdes);
+        IBIS_BLOCK_GUARD(gzclose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
 #endif
@@ -2905,8 +2893,8 @@ int ibis::bord::backup(const char* dir, const char* tname,
                 values(col.selectOpaques(msk0));
             std::string spname = cnm;
             spname += ".sp";
-            int sdes = UnixOpen(spname.c_str(), OPEN_READWRITE, OPEN_FILEMODE);
-            if (sdes < 0) {
+            gzFile sdes = UnixOpen(spname.c_str(), "wb+");
+            if (sdes == Z_NULL) {
                 LOGGER(ibis::gVerbose >= 0)
                     << "bord::backup(" << dir << ") failed to open file "
                     << spname << " for writing the starting positions";
@@ -3634,7 +3622,7 @@ long ibis::bord::reorder(const ibis::table::stringArray& keys) {
 } // ibis::bord::reorder
 
 long ibis::bord::reorder(const ibis::table::stringArray& cols,
-                         const std::vector<bool>& ascin) {
+                         const std::vector<bool>& directions) {
     long ierr = 0;
     if (nRows() == 0 || nColumns() == 0) return ierr;
 
@@ -3659,7 +3647,7 @@ long ibis::bord::reorder(const ibis::table::stringArray& cols,
     // look through all columns to match the incoming column names
     typedef std::vector<ibis::column*> colVector;
     std::set<const char*, ibis::lessi> used;
-    colVector keys, load; // columns are separated into keys and payloads
+    colVector keys, load; // sort according to the keys
     for (ibis::table::stringArray::const_iterator nit = cols.begin();
          nit != cols.end(); ++ nit) {
         ibis::part::columnList::iterator it = columns.find(*nit);
@@ -3683,42 +3671,23 @@ long ibis::bord::reorder(const ibis::table::stringArray& cols,
         }
     }
 
-    // option for sorting direction,
-    //  1: use ascending order
-    //  0: default to use incoming argument ascin
-    // -1: use descending order
-    int diropt = 0;
     if (keys.empty()) { // use all integral values
-        if (cols.empty()) {
-            diropt = 1; // none of specified name is valid, ignore ascin
-            LOGGER(ibis::gVerbose >= 0)
-                << "Warning -- " << evt << " -- user did not specify "
-                "ordering keys, will order with all integer columns";
-        }
-        else {
-            if (ascin.empty() || ascin.size() != cols.size()) {
-                diropt = 1; // ignore ascin, default ascending order
+        if (ibis::gVerbose > 0) {
+            if (cols.empty()) {
+                LOGGER(true)
+                    << evt << " -- user did not specify ordering keys, will "
+                    "attempt to use all integer columns as ordering keys";
             }
             else {
-                size_t cnt = 0;
-                for (unsigned j = 0; j < ascin.size() && ascin[j] == false;
-                     ++ cnt, ++ j);
-                // if all keys are to be ordered in descending order, then
-                // use descending order even though we will not be using
-                // the originally specified keys (because the keys
-                // specified has only a single distinct value)
-                if (cnt == ascin.size()) diropt = -1;
-            }
-            if (ibis::gVerbose >= 0) {
                 std::ostringstream oss;
                 oss << cols[0];
                 for (unsigned i = 1; i < cols.size(); ++ i)
                     oss << ", " << cols[i];
                 LOGGER(true)
-                    << "Warning -- " << evt << " -- user specified ordering "
-                    "keys (" << oss.str() << ") contain too few distinct "
-                    "values, will order with all integer columns"
-                    << (diropt<0?" in the descending order":"");
+                    << evt << " -- user specified ordering keys \"" << oss.str()
+                    << "\" does not match any numerical columns with more "
+                    "than one distinct value, will attempt to use "
+                    "all integer columns as ordering keys";
             }
         }
 
@@ -3794,9 +3763,7 @@ long ibis::bord::reorder(const ibis::table::stringArray& cols,
                 return -3;
             }
 
-            const bool asc = (diropt > 0 ? true :
-                              (diropt < 0 ? false :
-                               (ascin.size()>i?ascin[i]:true)));
+            const bool asc = (directions.size()>i?directions[i]:true);
             switch (keys[i]->type()) {
             case ibis::CATEGORY:
             case ibis::TEXT:
@@ -4079,7 +4046,7 @@ long ibis::bord::sortValues(array_t<T>& vals,
         starts.push_back(0U);
         T last = vals[0];
         for (uint32_t i = 1; i < nEvents; ++ i) {
-            if (vals[i] != last) {
+            if (vals[i] > last) {
                 starts.push_back(i);
                 last = vals[i];
             }

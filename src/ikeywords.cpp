@@ -370,38 +370,39 @@ int ibis::keywords::parseTextFile(ibis::text::tokenizer &tkn,
     if (0 == col->dataFileName(tfname, dir))
         return -2;
 
-    int tfdesc = UnixOpen(tfname.c_str(), OPEN_READONLY);
-    if (tfdesc < 0) {
-        LOGGER(ibis::gVerbose >= 0)
-            << "Warning -- keywords::parseTextFile failed to open file \""
-            << tfname << "\", the open function returned " << tfdesc;
-        return -3;
-    }
-    IBIS_BLOCK_GUARD(UnixClose, tfdesc);
-
     spname = tfname;
     spname += ".sp";
-    FILE* spfile = fopen(spname.c_str(), "rb");
-    if (spfile == NULL) {
+    int tfdesc_lock = open(tfname.c_str(), OPEN_READONLY);
+    if (tfdesc_lock < 0) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- keywords::parseTextFile failed to open file \""
-            << spname << "\" -- " << FASTBIT_STRERR;
+            << tfname << "\", the open function returned " << tfdesc_lock;
+        return -3;
+    }
+    gzFile tfdesc = gzdopen(tfdesc_lock, "rb");
+    IBIS_BLOCK_GUARD(UnixClose, tfdesc);
+    int spdesc_lock = open(spname.c_str(), OPEN_READONLY);
+    if (spdesc_lock < 0) {
+        LOGGER(ibis::gVerbose >= 0)
+            << "Warning -- keywords::parseTextFile failed to open file \""
+            << spname << "\", the open function returned " << spdesc_lock;
         return -4;
     }
-    IBIS_BLOCK_GUARD(fclose, spfile);
+    gzFile spdesc = gzdopen(spdesc_lock, "rb");
 
+    IBIS_BLOCK_GUARD(UnixClose, spdesc);
     int64_t start, end;
-    int64_t ierr = fread(&start, sizeof(start), 1, spfile);
-    if (ierr < 1) {
+    int64_t ierr = UnixRead(spdesc, &start, sizeof(start));
+    if (ierr < 8) {
         LOGGER(ibis::gVerbose > 2)
             << "Warning -- keywords::parseTextFile failed to read the first "
             "value from " << spname;
         return -5;
     }
     nrows = 0;
-    ibis::fileManager::buffer<char> buf(2047);
+    ibis::fileManager::buffer<char> buf(2048);
     // main loop to actually read the strings one row at a time
-    while ((ierr = fread(&end, sizeof(end), 1, spfile)) == 1) {
+    while ((ierr = UnixRead(spdesc, &end, sizeof(end))) == 8) {
         if (start+1 >= end) { // null string
             start = end;
             ++ nrows;
@@ -472,7 +473,7 @@ int ibis::keywords::parseTextFile(ibis::text::tokenizer &tkn,
         }
         start = end;
         ++ nrows;
-    } // read spfile
+    } // read spdesc
 
     for (size_t j = 0; j < bits.size(); ++ j)
         if (bits[j] != 0)
@@ -561,23 +562,24 @@ int ibis::keywords::write(const char* dt) const {
     fnm += "idx";
     if (fname != 0 || str != 0)
         activate();
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) {
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing";
             return -1;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -719,8 +721,8 @@ int ibis::keywords::read(const char* f) {
 
     fnm.erase(fnm.size()-5);
     fnm += "idx";
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) return -1;
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) return -1;
 
     char header[8];
     IBIS_BLOCK_GUARD(UnixClose, fdes);

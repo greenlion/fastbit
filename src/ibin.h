@@ -147,7 +147,7 @@ public:
     static unsigned parseScale(const char*);
 
     /// Read an ibis::bin embedded inside a file.
-    int read(int fdes, size_t offset, const char *fname, const char *header);
+    int read(gzFile fdes, size_t offset, const char *fname, const char *header);
     /// Append the @c tail to this index.
     long append(const ibis::bin& tail);
     /// Append a list of integers representing bin numbers.
@@ -366,8 +366,8 @@ protected:
     } // swap
 
     virtual void clear();
-    int write32(int fptr) const;
-    int write64(int fptr) const;
+    int write32(gzFile fptr) const;
+    int write64(gzFile fptr) const;
 
     template <typename T> long
     mergeValues(const ibis::qContinuousRange&, ibis::array_t<T>&) const;
@@ -558,7 +558,7 @@ public:
     virtual double getMax() const;
     virtual double getSum() const;
 
-    int read(int fdes, size_t offset, const char *fname, const char *);
+    int read(gzFile fdes, size_t offset, const char *fname, const char *);
     long append(const ibis::range& tail);
     virtual void speedTest(std::ostream& out) const;
 
@@ -585,8 +585,8 @@ protected:
 
 private:
     // private member functions
-    int write32(int fptr) const; // write to the given stream
-    int write64(int fptr) const; // write to the given stream
+    int write32(gzFile fptr) const; // write to the given stream
+    int write64(gzFile fptr) const; // write to the given stream
     void print(std::ostream& out, const uint32_t tot, const double& lbound,
 	       const double& rbound) const;
 
@@ -717,9 +717,9 @@ private:
     std::vector<ibis::ambit*> sub;
 
     // private member functions
-    int write32(int fptr) const;
-    int write64(int fptr) const;
-    int read(int fdes, size_t offset, const char *fn, const char *header);
+    int write32(gzFile fptr) const;
+    int write64(gzFile fptr) const;
+    int read(gzFile fdes, size_t offset, const char *fn, const char *header);
     void print(std::ostream& out, const uint32_t tot, const double& lbound,
 	       const double& rbound) const;
 
@@ -783,8 +783,8 @@ private:
     std::vector<ibis::range*> sub;
 
     // private member functions
-    int write32(int fptr) const;
-    int write64(int fptr) const;
+    int write32(gzFile fptr) const;
+    int write64(gzFile fptr) const;
 
     pale(const pale&);
     pale& operator=(const pale&);
@@ -849,8 +849,8 @@ private:
     std::vector<ibis::bin*> sub;
 
     // private member functions
-    int write32(int fptr) const;
-    int write64(int fptr) const;
+    int write32(gzFile fptr) const;
+    int write64(gzFile fptr) const;
 
     pack(const pack&);
     pack& operator=(const pack&);
@@ -906,8 +906,8 @@ private:
     std::vector<ibis::bin*> sub;
 
     // private member functions
-    int write32(int fptr) const;
-    int write64(int fptr) const;
+    int write32(gzFile fptr) const;
+    int write64(gzFile fptr) const;
 
     zone(const zone&);
     zone& operator=(const zone&);
@@ -966,8 +966,8 @@ private:
     void activateCoarse(uint32_t i) const; // activate one bitmap
     void activateCoarse(uint32_t i, uint32_t j) const;
 
-    int writeCoarse32(int fdes) const;
-    int writeCoarse64(int fdes) const;
+    int writeCoarse32(gzFile fdes) const;
+    int writeCoarse64(gzFile fdes) const;
     int readCoarse(const char *fn);
     void clearCoarse();
 
@@ -1042,8 +1042,8 @@ protected:
 	ibis::bin::clear();
     }
 
-    int write32(int fdes) const;
-    int write64(int fdes) const;
+    int write32(gzFile fdes) const;
+    int write64(gzFile fdes) const;
     void construct(const char* f);
     virtual size_t getSerialSize() const throw();
 

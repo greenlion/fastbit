@@ -45,9 +45,9 @@ public:
     explicit array_t<T>(ibis::fileManager::storage* rhs);
     array_t<T>(ibis::fileManager::storage* rhs,
 	       const size_t start, const size_t end);
-    array_t<T>(const int fdes, const off_t begin, const off_t end);
+    array_t<T>(const gzFile fdes, const off_t begin, const off_t end);
     array_t<T>(const char *fn, const off_t begin, const off_t end);
-    array_t<T>(const char *fn, const int fdes,
+    array_t<T>(const char *fn, const gzFile fdes,
 	       const off_t begin, const off_t end);
     array_t<T>(T* addr, size_t nelm);
 
@@ -65,9 +65,9 @@ public:
     const T& front() const {return *m_begin;};
     const T& back() const {return m_end[-1];};
 
-    bool empty() const {return (m_begin == 0 || m_begin >= m_end);};
+    bool empty() const {return (m_begin == NULL || m_begin >= m_end);};
     size_t size() const {	///!< Return the number of elements.
-	return (m_begin > 0 && m_end > m_begin ? m_end - m_begin : 0);
+	return (m_begin > (void*)NULL && m_end > m_begin ? m_end - m_begin : 0);
     };
     inline void clear();
 
@@ -119,9 +119,9 @@ public:
     // the IO functions
     void  read(const char*);
     off_t read(const char*, const off_t, const off_t);
-    off_t read(const int, const off_t, const off_t);
+    off_t read(const gzFile, const off_t, const off_t);
     int   write(const char*) const;
-    int   write(FILE* fptr) const;
+    int   write(gzFile fptr) const;
 
     // print internal pointer addresses
     void printStatus(std::ostream& out) const;

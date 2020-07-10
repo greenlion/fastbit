@@ -248,8 +248,8 @@ ibis::index* ibis::index::create(const ibis::column* c, const char* dfname,
             }
             if (header == 0) {
                 // attempt to read the file using read(2)
-                int fdes = UnixOpen(file.c_str(), OPEN_READONLY);
-                if (fdes >= 0) {
+                gzFile fdes = UnixOpen(file.c_str(), "rb");
+                if (fdes != Z_NULL) {
 #if defined(_WIN32) && defined(_MSC_VER)
                     (void)_setmode(fdes, _O_BINARY);
 #endif
@@ -1427,8 +1427,8 @@ bool ibis::index::isIndex(const char* f, ibis::index::INDEX_TYPE t) {
     char buf[12];
     char* header = 0;
     // attempt to read the file using read(2)
-    int fdes = UnixOpen(f, OPEN_READONLY);
-    if (fdes >= 0) {
+    gzFile fdes = UnixOpen(f, "rb");
+    if (fdes != Z_NULL) {
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
 #endif
@@ -4230,7 +4230,7 @@ int ibis::index::initOffsets(int64_t *buf, size_t noffsets) {
 
 /// Read in the offset array.  The offset size has been read by the caller
 /// and so has the number of bitmaps to expect.
-int ibis::index::initOffsets(int fdes, const char offsize, size_t start,
+int ibis::index::initOffsets(gzFile fdes, const char offsize, size_t start,
                              uint32_t nobs) {
     if (offsize != 4 && offsize != 8)
         return -11;
@@ -4295,7 +4295,7 @@ int ibis::index::initOffsets(ibis::fileManager::storage* st, size_t start,
 /// FASTBIT_READ_BITVECTOR0 is defined.  It is to be used by the
 /// constructors of a concrete index classes after initOffsets has been
 /// called.
-void ibis::index::initBitmaps(int fdes) {
+void ibis::index::initBitmaps(gzFile fdes) {
     const uint32_t nobs = (offset64.size() > 1 ? offset64.size()-1 :
                            offset32.size() > 1 ? offset32.size()-1 : 0);
     for (uint32_t i = 0; i < bits.size(); ++ i)
@@ -4739,8 +4739,8 @@ void ibis::index::activate() const {
             }
         }
         else { // using the named file directly
-            int fdes = UnixOpen(fname, OPEN_READONLY);
-            if (fdes < 0) {
+            gzFile fdes = UnixOpen(fname, "rb+");
+            if (fdes == Z_NULL) {
                 LOGGER(ibis::gVerbose > 0)
                     << "Warning -- " << evt << " failed to open file \""
                     << fname << "\" ... " << (errno ? strerror(errno) : "??");
@@ -4885,8 +4885,8 @@ void ibis::index::activate() const {
         }
     }
     else { // using the named file directly
-        int fdes = UnixOpen(fname, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(fname, "rb");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open file \"" << fname
                 << "\" ... " << (errno ? strerror(errno) : "??");
@@ -5041,8 +5041,8 @@ void ibis::index::activate(uint32_t i) const {
             }
         }
         else if (fname != 0) { // using the named file directly
-            int fdes = UnixOpen(fname, OPEN_READONLY);
-            if (fdes >= 0) {
+            gzFile fdes = UnixOpen(fname, "rb");
+            if (fdes != Z_NULL) {
                 LOGGER(ibis::gVerbose > 5)
                     << evt << "(" << i << ") using file \"" << fname << "\"";
 
@@ -5140,8 +5140,8 @@ void ibis::index::activate(uint32_t i) const {
         }
     }
     else if (fname) { // using the named file directly
-        int fdes = UnixOpen(fname, OPEN_READONLY);
-        if (fdes >= 0) {
+        gzFile fdes = UnixOpen(fname, "rb");
+        if (fdes != Z_NULL) {
             LOGGER(ibis::gVerbose > 5)
                 << evt << "(" << i << ") using file \"" << fname << "\"";
 #if defined(_WIN32) && defined(_MSC_VER)
@@ -5298,8 +5298,8 @@ void ibis::index::activate(uint32_t i, uint32_t j) const {
         }
         else if (fname) { // using the named file directly
             if (offset64[j] > offset64[i]) {
-                int fdes = UnixOpen(fname, OPEN_READONLY);
-                if (fdes < 0) {
+                gzFile fdes = UnixOpen(fname, "rb");
+                if (fdes == Z_NULL) {
                     LOGGER(ibis::gVerbose > 0)
                         << "Warning -- " << evt << "failed to open file \""
                         << fname << "\" ... " << (errno?strerror(errno):"??");
@@ -5454,8 +5454,8 @@ void ibis::index::activate(uint32_t i, uint32_t j) const {
     }
     else if (fname) { // using the named file directly
         if (offset32[j] > offset32[i]) {
-            int fdes = UnixOpen(fname, OPEN_READONLY);
-            if (fdes < 0) {
+            gzFile fdes = UnixOpen(fname, "rb");
+            if (fdes == Z_NULL) {
                 LOGGER(ibis::gVerbose > 0)
                     << "Warning -- " << evt << " failed to open file \""
                     << fname << "\" ... " << (errno ? strerror(errno) : "??");

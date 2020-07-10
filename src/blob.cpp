@@ -9,7 +9,7 @@
 #include <iomanip>      // std::setprecision, std::setw
 
 /// Contruct a blob by reading from a metadata file.
-ibis::blob::blob(const part *prt, FILE *file) : ibis::column(prt, file) {
+ibis::blob::blob(const part *prt, FILE* file) : ibis::column(prt, file) {
 }
 
 /// Construct a blob from a name.
@@ -71,8 +71,8 @@ long ibis::blob::append(const char* dt, const char* df, const uint32_t nold,
         << datadest << "\", nold=" << nold << ", nnew=" << nnew;
 
     // rely on .sp file for existing data size
-    int sdest = UnixOpen(spdest.c_str(), OPEN_READWRITE, OPEN_FILEMODE);
-    if (sdest < 0) {
+    gzFile sdest = UnixOpen(spdest.c_str(), "rb+");
+    if (sdest == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file \"" << spdest
             << "\" for append ... "
@@ -169,8 +169,8 @@ long ibis::blob::append(const char* dt, const char* df, const uint32_t nold,
         return -10;
     }
 
-    int ssrc = UnixOpen(spfrom.c_str(), OPEN_READONLY);
-    if (ssrc < 0) {
+    gzFile ssrc = UnixOpen(spfrom.c_str(), "rb");
+    if (ssrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file " << spfrom
             << " for reading -- "
@@ -257,8 +257,8 @@ long ibis::blob::append(const char* dt, const char* df, const uint32_t nold,
         << " from " << spfrom << " to " << spdest;
 
     // open destination data file
-    int ddest = UnixOpen(datadest.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (ddest < 0) {
+    gzFile ddest = UnixOpen(datadest.c_str(), "ab");
+    if (ddest == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file \"" << datadest
             << "\" for append ... "
@@ -297,8 +297,8 @@ long ibis::blob::append(const char* dt, const char* df, const uint32_t nold,
         }
     }
 
-    int dsrc = UnixOpen(datasrc.c_str(), OPEN_READONLY);
-    if (dsrc < 0) {
+    gzFile dsrc = UnixOpen(datasrc.c_str(), "rb");
+    if (dsrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file \"" << datasrc
             << "\" for reading ... "
@@ -426,8 +426,8 @@ long ibis::blob::writeData(const char* dir, uint32_t nold, uint32_t nnew,
         << " to \"" << datadest << "\", nold=" << nold;
 
     // rely on .sp file for existing data size
-    int sdest = UnixOpen(spdest.c_str(), OPEN_READWRITE, OPEN_FILEMODE);
-    if (sdest < 0) {
+    gzFile sdest = UnixOpen(spdest.c_str(), "rb+");
+    if (sdest == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file \"" << spdest
             << "\" for append ... "
@@ -556,8 +556,8 @@ long ibis::blob::writeData(const char* dir, uint32_t nold, uint32_t nnew,
         << " to " << spdest;
 
     // open destination data file
-    int ddest = UnixOpen(datadest.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (ddest < 0) {
+    gzFile ddest = UnixOpen(datadest.c_str(), "ab");
+    if (ddest == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file \"" << datadest
             << "\" for append ... "
@@ -709,8 +709,8 @@ long ibis::blob::countRawBytes(const ibis::bitvector& mask) const {
         }
     }
     else { // have to open the .sp file to read the starting positions
-        int fsp = UnixOpen(spfile.c_str(), OPEN_READONLY);
-        if (fsp < 0) {
+        gzFile fsp = UnixOpen(spfile.c_str(), "rb");
+        if (fsp == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- blob::countRawBytes failed to open file "
                 << spfile << " for reading ... "
@@ -1018,8 +1018,8 @@ int ibis::blob::extractAll(const ibis::bitvector& mask,
                            ibis::array_t<uint64_t>& positions,
                            const char* rawfile,
                            const ibis::array_t<int64_t>& starts) const {
-    int fdes = UnixOpen(rawfile, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(rawfile, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- blob::extractAll failed to open " << rawfile
             << " for reading ... "
@@ -1107,8 +1107,8 @@ int ibis::blob::extractSome(const ibis::bitvector& mask,
                             const char* rawfile,
                             const ibis::array_t<int64_t>& starts,
                             const uint32_t limit) const {
-    int fdes = UnixOpen(rawfile, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(rawfile, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- blob::extractSome failed to open " << rawfile
             << " for reading ... "
@@ -1199,8 +1199,8 @@ int ibis::blob::extractSome(const ibis::bitvector& mask,
                             const char* spfile,
                             const uint32_t limit) const {
     // sdes - for spfile
-    int sdes = UnixOpen(spfile, OPEN_READONLY);
-    if (sdes < 0) {
+    gzFile sdes = UnixOpen(spfile, "rb");
+    if (sdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- blob::extractSome failed to open " << spfile
             << " for reading ... "
@@ -1213,8 +1213,8 @@ int ibis::blob::extractSome(const ibis::bitvector& mask,
 #endif
 
     // rdes - for rawfile
-    int rdes = UnixOpen(rawfile, OPEN_READONLY);
-    if (rdes < 0) {
+    gzFile rdes = UnixOpen(rawfile, "rb");
+    if (rdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- blob::extractSome failed to open " << rawfile
             << " for reading ... "
@@ -1435,8 +1435,8 @@ int ibis::blob::readBlob(uint32_t ind, char *&buf, uint64_t &size,
     if (buf == 0)
         return -10;
 
-    int fdes = UnixOpen(datafile, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(datafile, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- blob::readBlob failed to open " << datafile
             << " for reading ... "
@@ -1479,8 +1479,8 @@ int ibis::blob::readBlob(uint32_t ind, char *&buf, uint64_t &size,
                          const char *spfile, const char *datafile) const {
     int64_t starts[2];
     const uint32_t spelem = 8;
-    int sdes = UnixOpen(spfile, OPEN_READONLY);
-    if (sdes < 0) {
+    gzFile sdes = UnixOpen(spfile, "rb");
+    if (sdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- blob::readBlob failed to open " << spfile
             << " for reading ... "
@@ -1519,8 +1519,8 @@ int ibis::blob::readBlob(uint32_t ind, char *&buf, uint64_t &size,
     if (buf == 0)
         return -10;
 
-    int fdes = UnixOpen(datafile, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(datafile, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- blob::readBlob failed to open " << datafile
             << " for reading ... "

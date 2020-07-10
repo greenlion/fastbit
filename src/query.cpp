@@ -6036,8 +6036,8 @@ int64_t ibis::query::recordEqualPairs(const array_t<T1>& val1,
                                       const char* filename) const {
     if (filename == 0 || *filename == 0)
         return countEqualPairs(val1, val2);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "wb");
+    if (fdes == Z_NULL) {
         logWarning("recordEqualPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countEqualPairs(val1, val2);
@@ -6115,8 +6115,8 @@ int64_t ibis::query::recordEqualPairs(const array_t<uint32_t>& val1,
                                       const char* filename) const {
     if (filename == 0 || *filename == 0)
         return countEqualPairs(val1, val2);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "rb");
+    if (fdes == Z_NULL) {
         logWarning("recordEqualPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countEqualPairs(val1, val2);
@@ -6187,8 +6187,8 @@ int64_t ibis::query::recordEqualPairs(const array_t<int32_t>& val1,
                                       const char* filename) const {
     if (filename == 0 || *filename == 0)
         return countEqualPairs(val1, val2);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "wb");
+    if (fdes == Z_NULL) {
         logWarning("recordEqualPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countEqualPairs(val1, val2);
@@ -6269,8 +6269,8 @@ int64_t ibis::query::recordDeltaPairs(const array_t<T1>& val1,
         return countDeltaPairs(val1, val2, delta);
     if (delta <= 0)
         return recordEqualPairs(val1, val2, ind1, ind2, filename);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "wb");
+    if (fdes == Z_NULL) {
         logWarning("recordDeltaPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countDeltaPairs(val1, val2, delta);
@@ -6390,8 +6390,8 @@ int64_t ibis::query::recordDeltaPairs(const array_t<uint32_t>& val1,
         return countDeltaPairs(val1, val2, delta);
     if (delta <= 0)
         return recordEqualPairs(val1, val2, ind1, ind2, filename);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "wb");
+    if (fdes == Z_NULL) {
         logWarning("recordDeltaPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countDeltaPairs(val1, val2, delta);
@@ -6458,8 +6458,8 @@ int64_t ibis::query::recordDeltaPairs(const array_t<int32_t>& val1,
         return countDeltaPairs(val1, val2, delta);
     if (delta <= 0)
         return recordEqualPairs(val1, val2, ind1, ind2, filename);
-    int fdes = UnixOpen(filename, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(filename, "wb");
+    if (fdes == Z_NULL) {
         logWarning("recordDeltaPairs",
                    "failed to open file \"%s\" for writing", filename);
         return countDeltaPairs(val1, val2, delta);
@@ -7782,9 +7782,9 @@ void ibis::query::orderPairs(const char *pfile) const {
     if (pfile == 0 || *pfile == 0)
         return;
     uint32_t npairs = ibis::util::getFileSize(pfile);
-    int fdes = UnixOpen(pfile, OPEN_READWRITE, OPEN_FILEMODE);
+    gzFile fdes = UnixOpen(pfile, "rb+");
     long ierr;
-    if (fdes < 0) {
+    if (fdes == Z_NULL) {
         logWarning("orderPairs", "failed to open %s for sorting", pfile);
         return;
     }
@@ -7926,22 +7926,22 @@ int64_t ibis::query::mergePairs(const char *pfile) const {
         return -1;
     }
     cnt = 0;
-    int indes = UnixOpen(pfile, OPEN_READONLY);
-    if (indes < 0) {
+    gzFile indes = UnixOpen(pfile, "rb");
+    if (indes == Z_NULL) {
         logWarning("mergePairs", "failed to open %s for reading", pfile);
         return -2;
     }
 
-    int outdes = UnixOpen(outfile.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (outdes < 0) {
+    gzFile outdes = UnixOpen(outfile.c_str(), "wb");
+    if (outdes == Z_NULL) {
         logWarning("mergePairs", "failed to open %s for writing",
                    outfile.c_str());
         UnixClose(indes);
         return -3;
     }
 
-    int olddes = UnixOpen(oldfile.c_str(), OPEN_READONLY);
-    if (olddes < 0) {
+    gzFile olddes = UnixOpen(oldfile.c_str(), "rb");
+    if (olddes == Z_NULL) {
         logWarning("mergePairs", "failed to open %s for reading",
                    oldfile.c_str());
         UnixClose(outdes);

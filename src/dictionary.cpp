@@ -110,7 +110,7 @@ int ibis::dictionary::write(const char* name) const {
     }
 
     ibis::util::timer mytimer(evt.c_str(), 4);
-    FILE* fptr = fopen(name, "wb");
+    gzFile fptr = gzopen(name, "wb");
     if (fptr == 0) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to open the file ... "
@@ -118,21 +118,21 @@ int ibis::dictionary::write(const char* name) const {
         return -3;
     }
 
-    IBIS_BLOCK_GUARD(fclose, fptr);
-    int ierr = fwrite(_fastbit_dictionary_header, 1, 20, fptr);
+    IBIS_BLOCK_GUARD(gzclose, fptr);
+    int ierr = gzwrite(fptr, _fastbit_dictionary_header, 20);
     if (ierr != 20) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt
-            << " failed to write the header, fwrite returned " << ierr;
+            << " failed to write the header, gzwrite returned " << ierr;
         return -4;
     }
 
     const uint32_t nkeys = key_.size();
-    ierr = fwrite(&nkeys, sizeof(nkeys), 1, fptr);
+    ierr = gzwrite(fptr, &nkeys, sizeof(nkeys));
     if (ierr != 1) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to write the size(" << nkeys
-            << "), fwrite returned " << ierr;
+            << "), gzwrite returned " << ierr;
         return -5;
     }
     if (nkeys == 0) // nothing else to write
@@ -165,21 +165,21 @@ int ibis::dictionary::write(const char* name) const {
 /// Write the dictionary one keyword at a time.  This version requires on
 /// write call on each keyword, which can be time consuming when there are
 /// many keywords.
-int ibis::dictionary::writeKeys(FILE *fptr, uint32_t nkeys,
+int ibis::dictionary::writeKeys(gzFile fptr, uint32_t nkeys,
                                 array_t<uint64_t> &pos,
                                 array_t<uint32_t> &qos) const {
-    int ierr = fseek(fptr, 8*(nkeys+1)+4*nkeys, SEEK_CUR);
-    long int tmp = ftell(fptr);
+    int ierr = gzseek(fptr, 8*(nkeys+1)+4*nkeys, SEEK_CUR);
+    long int tmp = gztell(fptr);
     pos.clear();
     qos.clear();
     pos.push_back(tmp);
     for (uint32_t j = 0; j < raw_.size(); ++ j) {
         if (raw_[j] != 0) {
             const int len = 1 + std::strlen(raw_[j]);
-            ierr = fwrite(raw_[j], 1, len, fptr);
+            ierr = gzwrite(fptr, raw_[j], len);
             LOGGER(ierr != len && ibis::gVerbose > 1)
                 << "Warning -- dictionary::writeKeys failed to write key["
-                << j << "]; expected fwrite to return " << len
+                << j << "]; expected gzwrite to return " << len
                 << ", but got " << ierr;
 
             tmp += len;
@@ -190,21 +190,21 @@ int ibis::dictionary::writeKeys(FILE *fptr, uint32_t nkeys,
 
     tmp = 0;
     // go back to write the offsets/positions
-    ierr = fseek(fptr, 24, SEEK_SET);
+    ierr = gzseek(fptr, 24, SEEK_SET);
     LOGGER(ierr != 0 && ibis::gVerbose > 1)
         << "Warning -- dictionary::writeKeys failed to seek to offset 24 "
         "to write the offsets";
 
-    ierr = fwrite(pos.begin(), sizeof(uint64_t), nkeys+1, fptr);
+    ierr = gzwrite(fptr, pos.begin(), sizeof(uint64_t) * (nkeys+1));
     LOGGER(ierr != (int)(nkeys+1) && ibis::gVerbose > 1)
         << "Warning -- dictionary::writeKeys failed to write the offsets, "
-        "expected fwrite to return " << nkeys+1 << ", but got " << ierr;
+        "expected gzwrite to return " << nkeys+1 << ", but got " << ierr;
     tmp -= 7 * (ierr != (int)(nkeys+1));
 
-    ierr = fwrite(qos.begin(), sizeof(uint32_t), nkeys, fptr);
+    ierr = gzwrite(fptr, qos.begin(), sizeof(uint32_t) * nkeys);
     LOGGER(ierr != (int)(nkeys) && ibis::gVerbose > 1)
         << "Warning -- dictionary::writeKeys failed to write the keys, "
-        "expected fwrite to return " << nkeys << ", but got " << ierr;
+        "expected gzwrite to return " << nkeys << ", but got " << ierr;
     tmp -= 8 * (ierr != (int)(nkeys));
     return tmp;
 } // ibis::dictionary::writeKeys
@@ -217,7 +217,7 @@ int ibis::dictionary::writeKeys(FILE *fptr, uint32_t nkeys,
 /// we can write the buffer using a single sequential write operations,
 /// which should reduce the I/O time.  The easiest way to satisfy these
 /// conditions is to invoke mergeBuffers.
-int ibis::dictionary::writeBuffer(FILE *fptr, uint32_t nkeys,
+int ibis::dictionary::writeBuffer(gzFile fptr, uint32_t nkeys,
                                   array_t<uint64_t> &pos,
                                   array_t<uint32_t> &qos) const {
     size_t ierr;
@@ -225,20 +225,20 @@ int ibis::dictionary::writeBuffer(FILE *fptr, uint32_t nkeys,
     for (unsigned j = 0; j < nkeys; ++ j)
         pos[j+1] += pos[j];
 
-    ierr = fwrite(pos.begin(), sizeof(uint64_t), nkeys+1, fptr);
+    ierr = gzwrite(fptr, pos.begin(), sizeof(uint64_t) * (nkeys+1));
     LOGGER(ierr != (int)(nkeys+1) && ibis::gVerbose > 1)
         << "Warning -- dictionary::writeBuffer failed to write the offsets, "
-        "expected fwrite to return " << nkeys+1 << ", but got " << ierr;
+        "expected gzwrite to return " << nkeys+1 << ", but got " << ierr;
 
-    ierr = fwrite(qos.begin(), sizeof(uint32_t), nkeys, fptr);
+    ierr = gzwrite(fptr, qos.begin(), sizeof(uint32_t) * nkeys);
     LOGGER(ierr != (int)(nkeys) && ibis::gVerbose > 1)
         << "Warning -- dictionary::writeBuffer failed to write the keys, "
-        "expected fwrite to return " << nkeys << ", but got " << ierr;
+        "expected gzwrite to return " << nkeys << ", but got " << ierr;
 
     const char *buff = buffer_[0];
     size_t sz = pos[nkeys] - pos[0];
-    while (sz > 0) {  // a large buffer may need multuple fwrite calls
-        ierr = fwrite(buff, 1, sz, fptr);
+    while (sz > 0) {  // a large buffer may need multuple gzwrite calls
+        ierr = gzwrite(fptr, buff, sz);
         if (ierr > 0U && ierr <= sz) {
             buff += ierr;
             sz -= ierr;
@@ -246,7 +246,7 @@ int ibis::dictionary::writeBuffer(FILE *fptr, uint32_t nkeys,
         else {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- dictionary::writeBuffer failed to write the "
-                "buffer, fwrite retruned 0";
+                "buffer, gzwrite retruned 0";
             return -6;
         }
     }
@@ -277,7 +277,7 @@ int ibis::dictionary::read(const char* name) {
 
     // open the file to read
     int ierr = 0;
-    FILE* fptr = fopen(name, "rb");
+    gzFile fptr = gzopen(name, "rb");
     if (fptr == 0) {
         LOGGER(ibis::gVerbose > 3)
             << "Warning -- " << evt << " failed to open the file ... "
@@ -286,8 +286,8 @@ int ibis::dictionary::read(const char* name) {
     }
 
     ibis::util::timer mytimer(evt.c_str(), 4);
-    IBIS_BLOCK_GUARD(fclose, fptr);
-    ierr = fseek(fptr, 0, SEEK_END); // to the end
+    IBIS_BLOCK_GUARD(gzclose, fptr);
+    ierr = gzseek(fptr, 0, SEEK_END); // to the end
     if (ierr != 0) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to seek to the end of the file";
@@ -295,10 +295,10 @@ int ibis::dictionary::read(const char* name) {
     }
 
     uint32_t version = 0xFFFFFFFFU;
-    long int sz = ftell(fptr); // file size
+    long int sz = gztell(fptr); // file size
     if (sz > 24) {
         char header[20];
-        ierr = fseek(fptr, 0, SEEK_SET);
+        ierr = gzseek(fptr, 0, SEEK_SET);
         if (ierr != 0) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- " << evt << " failed to seek to the beginning "
@@ -306,7 +306,7 @@ int ibis::dictionary::read(const char* name) {
             return -4;
         }
 
-        ierr = fread(header, 1, 20, fptr);
+        ierr = gzread(fptr, header, 20);
         if (ierr != 20) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- " << evt << " failed to read the 20-byte header";
@@ -368,15 +368,15 @@ int ibis::dictionary::read(const char* name) {
 /// contains the raw strings.  There is no header in the dictionary file,
 /// therefore this function has rewind back to the beginning of the file.
 /// On successful completion, this function returns 0.
-int ibis::dictionary::readRaw(const char *evt, FILE *fptr) {
-    int ierr = fseek(fptr, 0, SEEK_END);
+int ibis::dictionary::readRaw(const char *evt, gzFile fptr) {
+    int ierr = gzseek(fptr, 0, SEEK_END);
     if (ierr != 0) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to seek to the end of the file";
         return -11;
     }
     clear();
-    long int sz = ftell(fptr); // file size
+    long int sz = gztell(fptr); // file size
     ierr = sz;
     if (ierr != sz) {
         LOGGER(ibis::gVerbose >= 0)
@@ -388,18 +388,18 @@ int ibis::dictionary::readRaw(const char *evt, FILE *fptr) {
 
     buffer_.resize(1);
     buffer_[0] = new char[sz];
-    ierr = fseek(fptr, 0, SEEK_SET);
+    ierr = gzseek(fptr, 0, SEEK_SET);
     if (ierr != 0) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to seek to the beginning of "
             "the file";
         return -13;
     }
-    ierr = fread(buffer_[0], 1, sz, fptr);
+    ierr = gzread(fptr, buffer_[0], sz);
     if (ierr != sz) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read " << sz << " byte"
-            << (sz>1?"s":"") << ", fread returned " << ierr;
+            << (sz>1?"s":"") << ", gzread returned " << ierr;
         delete [] buffer_[0];
         buffer_.clear();
         return -14;
@@ -431,42 +431,42 @@ int ibis::dictionary::readRaw(const char *evt, FILE *fptr) {
 ///
 /// Note that this function assume the 20-byte header has been read
 /// already.
-int ibis::dictionary::readKeys0(const char *evt, FILE *fptr) {
+int ibis::dictionary::readKeys0(const char *evt, gzFile fptr) {
     uint32_t nkeys;
-    int ierr = fread(&nkeys, 4, 1, fptr);
+    int ierr = gzread(fptr, &nkeys, 4);
     if (ierr != 1) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt
-            << " failed to read the number of keys, fread returned " << ierr;
+            << " failed to read the number of keys, gzread returned " << ierr;
         return -6;
     }
 
     clear();
     array_t<uint32_t> codes(nkeys);
-    ierr = fread(codes.begin(), 4, nkeys, fptr);
+    ierr = gzread(fptr, codes.begin(), 4 * nkeys);
     if (ierr != (long)nkeys) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read " << nkeys
-            << ", fread returned " << ierr;
+            << ", gzread returned " << ierr;
         return -7;
     }
 
     array_t<uint32_t> offsets(nkeys+1);
-    ierr = fread(offsets.begin(), 4, nkeys+1, fptr);
+    ierr = gzread(fptr, offsets.begin(), 4 * nkeys+1);
     if (ierr != (int)(1+nkeys)) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the string positions, "
-            "expected fread to return " << nkeys+1 << ", but got " << ierr;
+            "expected gzread to return " << nkeys+1 << ", but got " << ierr;
         return -8;
     }
 
     buffer_.resize(1);
     buffer_[0] = new char[offsets.back()-offsets.front()];
-    ierr = fread(buffer_[0], 1, offsets.back()-offsets.front(), fptr);
+    ierr = gzread(fptr, buffer_[0], offsets.back()-offsets.front());
     if (ierr != (int)(offsets.back()-offsets.front())) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the strings, "
-            "expected fread to return " << (offsets.back()-offsets.front())
+            "expected gzread to return " << (offsets.back()-offsets.front())
             << ", but got " << ierr;
         return -9;
     }
@@ -504,34 +504,34 @@ int ibis::dictionary::readKeys0(const char *evt, FILE *fptr) {
 /// Read the string values.  This function processes the data produced by
 /// version 0x01000000 of the write function.  On successful completion, it
 /// returns 0.
-int ibis::dictionary::readKeys1(const char *evt, FILE *fptr) {
+int ibis::dictionary::readKeys1(const char *evt, gzFile fptr) {
     uint32_t nkeys;
-    int ierr = fread(&nkeys, 4, 1, fptr);
+    int ierr = gzread(fptr, &nkeys, 4);
     if (ierr != 1) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt
-            << " failed to read the number of keys, fread returned " << ierr;
+            << " failed to read the number of keys, gzread returned " << ierr;
         return -6;
     }
 
     clear();
 
     array_t<uint64_t> offsets(nkeys+1);
-    ierr = fread(offsets.begin(), 8, nkeys+1, fptr);
+    ierr = gzread(fptr, offsets.begin(), 8 * (nkeys+1));
     if (ierr != (int)(1+nkeys)) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the string positions, "
-            "expected fread to return " << nkeys+1 << ", but got " << ierr;
+            "expected gzread to return " << nkeys+1 << ", but got " << ierr;
         return -8;
     }
 
     buffer_.resize(1);
     buffer_[0] = new char[offsets.back()-offsets.front()];
-    ierr = fread(buffer_[0], 1, offsets.back()-offsets.front(), fptr);
+    ierr = gzread(fptr, buffer_[0], offsets.back()-offsets.front());
     if (ierr != (int)(offsets.back()-offsets.front())) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the strings, "
-            "expected fread to return " << (offsets.back()-offsets.front())
+            "expected gzread to return " << (offsets.back()-offsets.front())
             << ", but got " << ierr;
         return -9;
     }
@@ -562,13 +562,13 @@ int ibis::dictionary::readKeys1(const char *evt, FILE *fptr) {
 /// Read the string values.  This function processes the data produced by
 /// version 0x01000000 of the write function.  On successful completion, it
 /// returns 0.
-int ibis::dictionary::readKeys2(const char *evt, FILE *fptr) {
+int ibis::dictionary::readKeys2(const char *evt, gzFile fptr) {
     uint32_t nkeys;
-    int ierr = fread(&nkeys, 4, 1, fptr);
+    int ierr = gzread(fptr, &nkeys, 4);
     if (ierr != 1) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt
-            << " failed to read the number of keys, fread returned " << ierr;
+            << " failed to read the number of keys, gzread returned " << ierr;
         return -6;
     }
 
@@ -576,19 +576,19 @@ int ibis::dictionary::readKeys2(const char *evt, FILE *fptr) {
 
     array_t<uint32_t> codes(nkeys);
     array_t<uint64_t> offsets(nkeys+1);
-    ierr = fread(offsets.begin(), 8, nkeys+1, fptr);
+    ierr = gzread(fptr, offsets.begin(), 8 * (nkeys+1));
     if (ierr != (int)(1+nkeys)) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the string positions, "
-            "expected fread to return " << nkeys+1 << ", but got " << ierr;
+            "expected gzread to return " << nkeys+1 << ", but got " << ierr;
         return -7;
     }
 
-    ierr = fread(codes.begin(), 4, nkeys, fptr);
+    ierr = gzread(fptr, codes.begin(), 4 * nkeys);
     if (ierr != (int)(nkeys)) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the string keys, "
-            "expected fread to return " << nkeys << ", but got " << ierr;
+            "expected gzread to return " << nkeys << ", but got " << ierr;
         return -8;
     }
     uint32_t maxcode = 0;
@@ -599,11 +599,11 @@ int ibis::dictionary::readKeys2(const char *evt, FILE *fptr) {
 
     buffer_.resize(1);
     buffer_[0] = new char[offsets.back()-offsets.front()];
-    ierr = fread(buffer_[0], 1, offsets.back()-offsets.front(), fptr);
+    ierr = gzread(fptr, buffer_[0], offsets.back()-offsets.front());
     if (ierr != (int)(offsets.back()-offsets.front())) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to read the strings, "
-            "expected fread to return " << (offsets.back()-offsets.front())
+            "expected gzread to return " << (offsets.back()-offsets.front())
             << ", but got " << ierr;
         return -9;
     }

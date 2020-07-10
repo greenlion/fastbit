@@ -19,7 +19,7 @@
 
 ////////////////////////////////////////////////////////////////////////
 // functions for ibis::category
-ibis::category::category(const part* tbl, FILE* file)
+ibis::category::category(const part* tbl, gzFile file)
     : text(tbl, file), dic() {
 #ifdef FASTBIT_EAGER_INIT
     prepareMembers();
@@ -400,8 +400,8 @@ ibis::direkte* ibis::category::fillIndex(const char *dir) const {
             ints.read(intfile.c_str());
         if (ints.size() == 0 ||
             (iscurrent && ints.size() < thePart->nRows())) {
-            int fraw = UnixOpen(raw.c_str(), OPEN_READONLY);
-            if (fraw < 0) {
+            gzFile fraw = UnixOpen(raw.c_str(), "rb");
+            if (fraw == Z_NULL) {
                 LOGGER(ibis::gVerbose > 1)
                     << "Warning -- " << evt << " failed to open data file "
                     << raw;
@@ -614,8 +614,8 @@ int ibis::category::setDictionary(const ibis::dictionary &sup) {
         std::string data = thePart->currentDataDir();
         data += FASTBIT_DIRSEP;
         data += m_name; // primary data file name
-        int fdata = UnixOpen(data.c_str(), OPEN_READONLY);
-        if (fdata >= 0) {
+        gzFile fdata = UnixOpen(data.c_str(), "rb");
+        if (fdata != Z_NULL) {
 #if defined(_WIN32) && defined(_MSC_VER)
             (void)_setmode(fdata, _O_BINARY);
 #endif
@@ -1067,14 +1067,14 @@ long ibis::category::append(const char* dt, const char* df,
         cnt = nnew;
 
         // copy the raw bytes to dt
-        int fptr = UnixOpen(src.c_str(), OPEN_READONLY);
-        if (fptr >= 0) {
+        gzFile fptr = UnixOpen(src.c_str(), "rb");
+        if (fptr != Z_NULL) {
             IBIS_BLOCK_GUARD(UnixClose, fptr);
 #if defined(_WIN32) && defined(_MSC_VER)
             (void)_setmode(fptr, _O_BINARY);
 #endif
-            int fdest = UnixOpen(dest.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-            if (fdest >= 0) { // copy raw bytes without any sanity check
+            gzFile fdest = UnixOpen(dest.c_str(), "ab");
+            if (fdest != Z_NULL) { // copy raw bytes without any sanity check
                 IBIS_BLOCK_GUARD(UnixClose, fdest);
 #if defined(_WIN32) && defined(_MSC_VER)
                 (void)_setmode(fdest, _O_BINARY);
@@ -1089,7 +1089,7 @@ long ibis::category::append(const char* dt, const char* df,
                 }
 #if defined(FASTBIT_SYNC_WRITE)
 #if _POSIX_FSYNC+0 > 0
-                    (void) UnixFlush(fdest); // write to disk
+                    (void) UnixFlush(fdest, Z_FINISH); // write to disk
 #elif defined(_WIN32) && defined(_MSC_VER)
                     (void) _commit(fdest);
 #endif
@@ -1111,8 +1111,8 @@ long ibis::category::append(const char* dt, const char* df,
     }
     else {
         // first time accessing these strings, need to parse them
-        int fptr = UnixOpen(src.c_str(), OPEN_READONLY);
-        if (fptr >= 0) {
+        gzFile fptr = UnixOpen(src.c_str(), "rb");
+        if (fptr != Z_NULL) {
             IBIS_BLOCK_GUARD(UnixClose, fptr);
 #if defined(_WIN32) && defined(_MSC_VER)
             (void)_setmode(fptr, _O_BINARY);
@@ -1194,8 +1194,8 @@ long ibis::category::append(const char* dt, const char* df,
                 << ints.size() << " strings from \"" << src
                 << "\" but was only able append " << ierr << " to the index";
 
-            int fdest = UnixOpen(dest.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-            if (fdest >= 0) { // copy raw bytes without any sanity check
+            gzFile fdest = UnixOpen(dest.c_str(), "ab");
+            if (fdest != Z_NULL) { // copy raw bytes without any sanity check
                 IBIS_BLOCK_GUARD(UnixClose, fdest);
 #if defined(_WIN32) && defined(_MSC_VER)
                 (void)_setmode(fdest, _O_BINARY);
@@ -1461,7 +1461,7 @@ const char* ibis::category::isKey(const char* str) const {
 
 ////////////////////////////////////////////////////////////////////////
 // functions for ibis::text
-ibis::text::text(const part* tbl, FILE* file) : ibis::column(tbl, file) {
+ibis::text::text(const part* tbl, gzFile file) : ibis::column(tbl, file) {
 #ifdef FASTBIT_EAGER_INIT
     if (thePart != 0)
         startPositions(thePart->currentDataDir(), 0, 0);
@@ -1519,18 +1519,18 @@ void ibis::text::startPositions(const char *dir, char *buf,
     std::string spfile = dfile;
     spfile += ".sp";
     mutexLock lock(this, "text::startPositions");
-    FILE *fdata = fopen(dfile.c_str(), "r+b"); // mostly for reading
-    FILE *fsp = fopen(spfile.c_str(), "r+b"); // mostly for writing
-    if (fsp == 0) // probably because the file does not exist, try again
-        fsp = fopen(spfile.c_str(), "wb");
-    if (fsp == 0) { // again failed to open .sp file
-        if (fdata == 0) {
+    gzFile fdata = gzopen(dfile.c_str(), "r+b"); // mostly for reading
+    gzFile fsp   = gzopen(spfile.c_str(), "r+b"); // mostly for writing
+    if (fsp == Z_NULL) // probably because the file does not exist, try again
+        fsp = gzopen(spfile.c_str(), "wb");
+    if (fsp == Z_NULL) { // again failed to open .sp file
+        if (fdata == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open file "
                 << dfile;
         }
         else {
-            fclose(fdata);
+            gzclose(fdata);
         }
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file "
@@ -1549,20 +1549,20 @@ void ibis::text::startPositions(const char *dir, char *buf,
             rewind(fsp);
             nold = thePart->nRows();
             for (unsigned j = 0; j <= nold; ++ j)
-                (void) fwrite(&pos, sizeof(int64_t), 1, fsp);
+                (void) gzwrite(fsp, &pos, sizeof(int64_t));
         }
 #endif
-        fclose(fsp);
+        gzclose(fsp);
         return;
     }
 
-    long ierr = fseek(fdata, 0, SEEK_END);
-    int64_t dfbytes = ftell(fdata);
-    ierr = fseek(fsp, 0, SEEK_END);
-    ierr = ftell(fsp);
+    long ierr = gzseek(fdata, 0, SEEK_END);
+    int64_t dfbytes = gztell(fdata);
+    ierr = gzseek(fsp, 0, SEEK_END);
+    ierr = gztell(fsp);
     if (isActiveData && ierr > (long)(8 * thePart->nRows())) {
-        fclose(fdata);
-        fclose(fsp);
+        gzclose(fdata);
+        gzclose(fsp);
         return;
     }
 
@@ -1574,26 +1574,26 @@ void ibis::text::startPositions(const char *dir, char *buf,
     }
 
     if (ierr > (long)sizeof(uint64_t)) // .sp contains at least two integers
-        ierr = fseek(fsp, -static_cast<long>(sizeof(int64_t)), SEEK_END);
+        ierr = gzseek(fsp, -static_cast<long>(sizeof(int64_t)), SEEK_END);
     else
         ierr = -1;
     if (ierr == 0) { // try to read the last word in .sp file
-        if (fread(&pos, sizeof(int64_t), 1, fsp) != 1) {
+        if (gzread(fsp, &pos, sizeof(int64_t)) != 1) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " failed to read the last "
                 "integer in file \"" << spfile << "\"";
-            fclose(fsp);
-            fclose(fdata);
+            gzclose(fsp);
+            gzclose(fdata);
             return;
         }
         if (pos >= 0 && pos <= dfbytes) {// within the valid range
-            nold = ftell(fsp) / sizeof(int64_t) - 1;
+            nold = gztell(fsp) / sizeof(int64_t) - 1;
             if (nold > thePart->nRows()) { // start from beginning
                 pos = 0;
                 nold = 0;
-                fclose(fsp);
+                gzclose(fsp);
                 /*remove(spfile.c_str());*/
-                fsp = fopen(spfile.c_str(), "wb");
+                fsp = gzopen(spfile.c_str(), "wb");
             }
         }
         else { // start from scratch
@@ -1602,19 +1602,19 @@ void ibis::text::startPositions(const char *dir, char *buf,
     }
 
     if (nold > 0) { // ready to overwrite the last integer
-        ierr = fseek(fsp, nold*sizeof(int64_t), SEEK_SET);
+        ierr = gzseek(fsp, nold*sizeof(int64_t), SEEK_SET);
     }
     else {
-        rewind(fsp);
+        gzrewind(fsp);
         pos = 0;
     }
     if (dfbytes <= 0) { // empty data file
         if (isActiveData) {
             for (unsigned j = nold; j <= thePart->nRows(); ++ j)
-                (void) fwrite(&pos, sizeof(int64_t), 1, fsp);
+                (void) gzwrite(fsp, &pos, sizeof(int64_t));
         }
-        fclose(fsp);
-        fclose(fdata);
+        gzclose(fsp);
+        gzclose(fdata);
         return;
     }
 
@@ -1622,14 +1622,14 @@ void ibis::text::startPositions(const char *dir, char *buf,
     int64_t last = pos;
     int64_t offset = 0;
     uint32_t nnew = 0;
-    ierr = fflush(fsp); // get ready for writing
-    ierr = fseek(fdata, pos, SEEK_SET);
+    ierr = gzflush(fsp, Z_FINISH); // get ready for writing
+    ierr = gzseek(fdata, pos, SEEK_SET);
     if (sps.size() <= 1) { // write one sp value at a time
-        while (0 < (ierr = fread(buf+offset, 1, nbuf-offset, fdata))) {
+        while (0 < (ierr = gzread(fdata, buf+offset, nbuf-offset))) {
             const char* const end = buf + offset + ierr;
             for (const char *s = buf+offset; s < end; ++ s, ++ pos) {
                 if (*s == 0) { // find a terminator
-                    if (1 > fwrite(&last, sizeof(last), 1, fsp)) {
+                    if (1 > gzwrite(fsp, &last, sizeof(last))) {
                         LOGGER(ibis::gVerbose >= 0)
                             << "Warning -- "
                             << evt << " failed to write integer value "
@@ -1657,7 +1657,7 @@ void ibis::text::startPositions(const char *dir, char *buf,
     else { // temporarily store sp values in sps
         const uint32_t nsps = sps.size();
         uint32_t jsps = 0;
-        while (0 < (ierr = fread(buf+offset, 1, nbuf-offset, fdata))) {
+        while (0 < (ierr = gzread(fdata, buf+offset, nbuf-offset))) {
             const char* const end = buf + offset + ierr;
             for (const char *s = buf+offset; s < end; ++ s, ++ pos) {
                 if (*s == 0) { // find a terminator
@@ -1665,7 +1665,7 @@ void ibis::text::startPositions(const char *dir, char *buf,
                     ++ jsps;
                     if (jsps >= nsps) {
                         if (jsps >
-                            fwrite(sps.address(), sizeof(last), jsps, fsp)) {
+                            gzwrite(fsp, sps.address(), sizeof(last) * jsps)) {
                             LOGGER(ibis::gVerbose >= 0)
                                 << "Warning -- "
                                 << evt << " failed to write " << jsps
@@ -1693,7 +1693,7 @@ void ibis::text::startPositions(const char *dir, char *buf,
         }
         if (jsps > 0) {
             if (jsps >
-                fwrite(sps.address(), sizeof(last), jsps, fsp)) {
+                gzwrite(fsp, sps.address(), sizeof(last) * jsps)) {
                 LOGGER(ibis::gVerbose >= 0)
                     << "Warning -- " << evt << " failed to write " << jsps
                     << " integers to file \"" << spfile << "\"";
@@ -1706,25 +1706,24 @@ void ibis::text::startPositions(const char *dir, char *buf,
         // make up missing values with a null string
         char zero = 0;
         // commit all read operations in preparation for write
-        pos = ftell(fdata);
-        ierr = fflush(fdata);
-        ierr = fwrite(&zero, 1, 1, fdata);
+        pos = gztell(fdata);
+        ierr = gzflush(fdata, Z_FINISH);
+        ierr = gzwrite(fdata, &zero, 1);
         int64_t *tmp = (int64_t*) buf;
         uint32_t ntmp = nbuf / sizeof(int64_t);
         for (uint32_t i = 0; i < ntmp; ++ i)
             tmp[i] = pos;
         const long missed = thePart->nRows() - nold - nnew + pos;
         for (long i = 0; i < missed; i += ntmp) {
-            ierr = fwrite(tmp, sizeof(int64_t),
-                          (i+(long)ntmp<=missed?(long)ntmp:missed-i), fsp);
+            ierr = gzwrite(fsp, tmp, sizeof(int64_t) * (i+(long)ntmp<=missed?(long)ntmp:missed-i));
         }
     }
     if (nnew > 0) {
-        pos = ftell(fdata);// current size of the data file
-        (void) fwrite(&pos, sizeof(pos), 1, fsp);
+        pos = gztell(fdata);// current size of the data file
+        (void) gzwrite(fsp, &pos, sizeof(pos));
     }
-    (void) fclose(fdata);
-    (void) fclose(fsp);
+    (void) gzclose(fdata);
+    (void) gzclose(fsp);
 
     LOGGER(ibis::gVerbose > 3)
         << evt << " located the starting positions of " << nnew
@@ -1734,10 +1733,10 @@ void ibis::text::startPositions(const char *dir, char *buf,
 
     if (isActiveData && nold + nnew > thePart->nRows()) {
         // too many strings in the base data file, truncate the file
-        fsp = fopen(spfile.c_str(), "rb");
-        ierr = fseek(fsp, thePart->nRows()*sizeof(int64_t), SEEK_SET);
-        ierr = fread(&pos, sizeof(int64_t), 1, fsp);
-        ierr = fclose(fsp);
+        fsp = gzopen(spfile.c_str(), "rb");
+        ierr = gzseek(fsp, thePart->nRows()*sizeof(int64_t), SEEK_SET);
+        ierr = gzread(fsp, &pos, sizeof(int64_t));
+        ierr = gzclose(fsp);
         ierr = truncate(spfile.c_str(), (1+thePart->nRows())*sizeof(int64_t));
         ierr = truncate(dfile.c_str(), pos);
         LOGGER(ibis::gVerbose >= 0)
@@ -1804,8 +1803,8 @@ long ibis::text::append(const char* dt, const char* df,
     dest += FASTBIT_DIRSEP;
     dest += name();
 
-    int fsrc = UnixOpen(src.c_str(), OPEN_READONLY);
-    if (fsrc < 0) {
+    gzFile fsrc = UnixOpen(src.c_str(), "rb");
+    if (fsrc == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file \"" << src
             <<"\" for reading";
@@ -1814,8 +1813,8 @@ long ibis::text::append(const char* dt, const char* df,
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fsrc, _O_BINARY);
 #endif
-    int fdest = UnixOpen(dest.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (fdest < 0) {
+    gzFile fdest = UnixOpen(dest.c_str(), "ab");
+    if (fdest == Z_NULL) {
         UnixClose(fsrc);
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file \"" << dest
@@ -1838,7 +1837,7 @@ long ibis::text::append(const char* dt, const char* df,
     }
 #if defined(FASTBIT_SYNC_WRITE)
 #if  _POSIX_FSYNC+0 > 0
-    (void) UnixFlush(fdest); // write to disk
+    (void) UnixFlush(fdest, Z_FINISH); // write to disk
 #elif defined(_WIN32) && defined(_MSC_VER)
     (void) _commit(fdest);
 #endif
@@ -1860,7 +1859,7 @@ long ibis::text::append(const char* dt, const char* df,
 
     // step 4: deals with the masks
     std::string filename;
-    filename = fsrc;
+    filename = src;
     filename += ".msk";
     ibis::bitvector mapp;
     try {mapp.read(filename.c_str());} catch (...) {/* ok to continue */}
@@ -1943,8 +1942,8 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
     std::string data = thePart->currentDataDir();
     data += FASTBIT_DIRSEP;
     data += m_name;
-    FILE *fdata = fopen(data.c_str(), "rb");
-    if (fdata == 0) {
+    gzFile fdata = gzopen(data.c_str(), "rb");
+    if (fdata == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " can not open data file \"" << data
             << "\" for reading";
@@ -1962,15 +1961,15 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
 
     std::string sp = data;
     sp += ".sp";
-    FILE *fsp = fopen(sp.c_str(), "rb");
+    gzFile fsp = gzopen(sp.c_str(), "rb");
     if (fsp == 0) { // try again
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
+        fsp = gzopen(sp.c_str(), "rb");
         if (fsp == 0) { // really won't work out
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " can not create or open file \""
                 << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return -4L;
         }
     }
@@ -1985,34 +1984,34 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
     int64_t begin = 0; // beginning position (file offset) of the bytes in buf
     int64_t next = 0;
     int64_t curr, ierr;
-    if (1 > fread(&curr, sizeof(curr), 1, fsp)) {
+    if (1 > gzread(fsp, &curr, sizeof(curr))) {
         // odd to be sure, but try again anyway
-        fclose(fsp);
+        gzclose(fsp);
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
-        if (fsp == 0) { // really won't work out
+        fsp = gzopen(sp.c_str(), "rb");
+        if (fsp == Z_NULL) { // really won't work out
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt <<  " can not open or read file \""
                 << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return -5L;
         }
     }
     if (spbuf.size() > 1 && (str == 0 || *str == 0)) {
         // match empty strings, with a buffer for starting positions
         uint32_t jsp, nsp;
-        ierr = fread(spbuf.address(), sizeof(int64_t), spbuf.size(), fsp);
+        ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
         if (ierr <= 0) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " failed to read file " << sp;
-            fclose(fsp);
-            fclose(fdata);
+            gzclose(fsp);
+            gzclose(fdata);
             return -6L;
         }
         next = spbuf[0];
         nsp = ierr;
         jsp = 1;
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose >= 0)
@@ -2036,8 +2035,7 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
 
                 if (moresp) {
                     if (jsp >= nsp) {
-                        ierr = fread(spbuf.address(), sizeof(int64_t),
-                                     spbuf.size(), fsp);
+                        ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
                         if (ierr <= 0) {
                             LOGGER(ierr < 0 && ibis::gVerbose >= 0)
                                 << "Warning -- " << evt << " failed to read "
@@ -2057,7 +2055,7 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
                 }
             }
             if (moresp) {// move back file pointer for fdata
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2073,18 +2071,18 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
 #endif
         const uint32_t slen = pat.length() + 1;
         uint32_t jsp, nsp;
-        ierr = fread(spbuf.address(), sizeof(int64_t), spbuf.size(), fsp);
+        ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
         if (ierr <= 0) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " failed to read file " << sp;
-            fclose(fsp);
-            fclose(fdata);
+            gzclose(fsp);
+            gzclose(fdata);
             return -7L;
         }
         jsp = 1;
         nsp = ierr;
         next = spbuf[0];
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
 #if FASTBIT_CASE_SENSITIVE_COMPARE+0 == 0
             for (long j = 0; j < jbuf; ++ j) // convert to lower case
                 buf[j] = tolower(buf[j]);
@@ -2150,9 +2148,8 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
                 curr = next;
                 if (moresp) {
                     if (jsp >= nsp) {
-                        if (feof(fsp) == 0) {
-                            ierr = fread(spbuf.address(), sizeof(int64_t),
-                                         spbuf.size(), fsp);
+                        if (gzeof(fsp) == 0) {
+                            ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
                             if (ierr <= 0) {
                                 LOGGER(ierr < 0 && ibis::gVerbose >= 0)
                                     << "Warning -- " << evt
@@ -2176,7 +2173,7 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
                 }
             }
             if (moresp) {// move back file pointer in fdata
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2184,8 +2181,8 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
     else if (str == 0 || *str == 0) { // only match empty strings
-        ierr = fread(&next, sizeof(next), 1, fsp);
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        ierr = gzread(fsp, &next, sizeof(next));
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose >= 0)
@@ -2207,15 +2204,15 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
                     << evt << " -- processed " << irow
                     << " strings from file " << data;
 
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back file pointer for fdata
-                //fseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
-                fseek(fdata, curr, SEEK_SET);
+                //gzseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2230,8 +2227,8 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
             pat[i] = tolower(pat[i]);
 #endif
         const uint32_t slen = pat.length() + 1;
-        ierr = fread(&next, sizeof(next), 1, fsp);
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        ierr = gzread(fsp, &next, sizeof(next));
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
 #if FASTBIT_CASE_SENSITIVE_COMPARE+0 == 0
             for (long j = 0; j < jbuf; ++ j) // convert to lower case
                 buf[j] = tolower(buf[j]);
@@ -2280,15 +2277,15 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
                     << " strings from file " << data;
 
                 curr = next;
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back file pointer for fdata
-                // fseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
-                fseek(fdata, curr, SEEK_SET);
+                // gzseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2296,8 +2293,8 @@ long ibis::text::stringSearch(const char* str, ibis::bitvector& hits) const {
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
 
-    fclose(fsp);
-    fclose(fdata);
+    gzclose(fsp);
+    gzclose(fdata);
     ibis::fileManager::instance().recordPages(0, next);
     ibis::fileManager::instance().recordPages
         (0, sizeof(uint64_t)*thePart->nRows());
@@ -2344,8 +2341,8 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
     std::string data = thePart->currentDataDir();
     data += FASTBIT_DIRSEP;
     data += m_name;
-    FILE *fdata = fopen(data.c_str(), "rb");
-    if (fdata == 0) {
+    gzFile fdata = gzopen(data.c_str(), "rb");
+    if (fdata == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " can not open data file \"" << data
             << "\" for reading";
@@ -2363,15 +2360,15 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
 
     std::string sp = data;
     sp += ".sp";
-    FILE *fsp = fopen(sp.c_str(), "rb");
-    if (fsp == 0) { // try again
+    gzFile fsp = gzopen(sp.c_str(), "rb");
+    if (fsp == Z_NULL) { // try again
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
-        if (fsp == 0) { // really won't work out
+        fsp = gzopen(sp.c_str(), "rb");
+        if (fsp == Z_NULL) { // really won't work out
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " can not create or open file \""
                 << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return -4L;
         }
     }
@@ -2382,16 +2379,16 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
     int64_t begin = 0; // beginning position (file offset) of the bytes in buf
     int64_t curr = 0;
     int64_t next = 0;
-    if (1 > fread(&curr, sizeof(curr), 1, fsp)) {
+    if (1 > gzread(fsp, &curr, sizeof(curr))) {
         // odd to be sure, but try again anyway
-        fclose(fsp);
+        gzclose(fsp);
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
+        fsp = gzopen(sp.c_str(), "rb");
         if (fsp == 0) { // really won't work out
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " can not open or read file \""
                 << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return -5L;
         }
     }
@@ -2403,18 +2400,18 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
 #endif
     if (spbuf.size() > 1) { // try to use the spbuf for starting positions
         uint32_t jsp, nsp;
-        ierr = fread(spbuf.address(), sizeof(int64_t), spbuf.size(), fsp);
+        ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
         if (ierr <= 0) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " failed to read " << sp;
-            fclose(fsp);
-            fclose(fdata);
+            gzclose(fsp);
+            gzclose(fdata);
             return -5L;
         }
         next = spbuf[0];
         nsp = ierr;
         jsp = 1;
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose>0)
@@ -2440,9 +2437,8 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
                 curr = next;
                 if (moresp) {
                     if (jsp >= nsp) {
-                        if (feof(fsp) == 0) {
-                            ierr = fread(spbuf.address(), sizeof(int64_t),
-                                         spbuf.size(), fsp);
+                        if (gzeof(fsp) == 0) {
+                            ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
                             if (ierr <= 0) {
                                 LOGGER(ierr < 0 && ibis::gVerbose >= 0)
                                     << "Warning -- " << evt
@@ -2466,7 +2462,7 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
                 }
             }
             if (moresp) {// move back file pointer to reread unused bytes
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2474,8 +2470,8 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
     else {
-        ierr = fread(&next, sizeof(next), 1, fsp);
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        ierr = gzread(fsp, &next, sizeof(next));
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose > 0)
@@ -2499,14 +2495,14 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
                     hits.setBit(irow, 1);
                 ++ irow;
                 curr = next;
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back file pointer to reread some bytes
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2514,8 +2510,8 @@ long ibis::text::stringSearch(const std::vector<std::string>& strs,
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
 
-    fclose(fsp);
-    fclose(fdata);
+    gzclose(fsp);
+    gzclose(fdata);
     ibis::fileManager::instance().recordPages(0, next);
     ibis::fileManager::instance().recordPages
         (0, sizeof(uint64_t)*thePart->nRows());
@@ -2554,15 +2550,15 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
     std::string data = thePart->currentDataDir();
     data += FASTBIT_DIRSEP;
     data += m_name;
-    FILE *fdata = fopen(data.c_str(), "rb");
-    if (fdata == 0) {
+    gzFile fdata = gzopen(data.c_str(), "rb");
+    if (fdata == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " can not open data file \"" << data
             << "\" for reading";
         return -2L;
     }
 
-    IBIS_BLOCK_GUARD(fclose, fdata);
+    IBIS_BLOCK_GUARD(gzclose, fdata);
 #if defined(DEBUG) || defined(_DEBUG) // DEBUG+0 > 0 || _DEBUG+0 > 0
     ibis::fileManager::buffer<char> mybuf(5000);
 #else
@@ -2574,11 +2570,11 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
 
     std::string sp = data;
     sp += ".sp";
-    FILE *fsp = fopen(sp.c_str(), "rb");
-    if (fsp == 0) { // try again
+    gzFile fsp = gzopen(sp.c_str(), "rb");
+    if (fsp == Z_NULL) { // try again
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
-        if (fsp == 0) { // really won't work out
+        fsp = gzopen(sp.c_str(), "rb");
+        if (fsp == Z_NULL) { // really won't work out
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " can not create or open file \""
                 << sp << "\"";
@@ -2596,22 +2592,22 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
     int64_t begin = 0; // beginning position (file offset) of the bytes in buf
     int64_t next = 0;
     int64_t curr, ierr;
-    if (1 > fread(&curr, sizeof(curr), 1, fsp)) {
+    if (1 > gzread(fsp, &curr, sizeof(curr))) {
         // odd to be sure, but try again anyway
-        fclose(fsp);
+        gzclose(fsp);
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
-        if (fsp == 0) { // really won't work out
+        fsp = gzopen(sp.c_str(), "rb");
+        if (fsp == Z_NULL) { // really won't work out
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt <<  " can not open or read file \""
                 << sp << "\"";
             return -5L;
         }
     }
-    IBIS_BLOCK_GUARD(fclose, fsp);
+    IBIS_BLOCK_GUARD(gzclose, fsp);
     if (spbuf.size() > 1)  { // use the second buffer, spbuf
         uint32_t jsp, nsp;
-        ierr = fread(spbuf.address(), sizeof(int64_t), spbuf.size(), fsp);
+        ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
         if (ierr <= 0) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- " << evt << " failed to read file " << sp;
@@ -2620,7 +2616,7 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
         jsp = 1;
         nsp = ierr;
         next = spbuf[0];
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose >= 0)
@@ -2661,9 +2657,8 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
                 curr = next;
                 if (moresp) {
                     if (jsp >= nsp) {
-                        if (feof(fsp) == 0) {
-                            ierr = fread(spbuf.address(), sizeof(int64_t),
-                                         spbuf.size(), fsp);
+                        if (gzeof(fsp) == 0) {
+                            ierr = gzread(fsp, spbuf.address(), sizeof(int64_t) * spbuf.size());
                             if (ierr <= 0) {
                                 LOGGER(ierr < 0 && ibis::gVerbose >= 0)
                                     << "Warning -- " << evt
@@ -2687,7 +2682,7 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
                 }
             }
             if (moresp) {// move back file pointer in fdata
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2695,8 +2690,8 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
     else { // normal null-terminated strings, no spbuf
-        ierr = fread(&next, sizeof(next), 1, fsp);
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0) {
+        ierr = gzread(fsp, &next, sizeof(next));
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0) {
             bool moresp = true;
             if (next > begin+jbuf) {
                 LOGGER(ibis::gVerbose >= 0)
@@ -2719,15 +2714,15 @@ long ibis::text::patternSearch(const char* pat, ibis::bitvector& hits) const {
                     << " strings from file " << data;
 
                 curr = next;
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back file pointer for fdata
-                // fseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
-                fseek(fdata, curr, SEEK_SET);
+                // gzseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -2915,7 +2910,7 @@ ibis::text::selectStrings(const ibis::bitvector& mask) const {
 ///
 /// Returns 0 if successful, otherwise return a negative number to indicate
 /// error.
-int ibis::text::readString(std::string& res, int fdes, long be, long en,
+int ibis::text::readString(std::string& res, gzFile fdes, long be, long en,
                            char* buf, uint32_t nbuf, uint32_t& inbuf,
                            off_t& boffset) const {
     res.clear();
@@ -3032,11 +3027,11 @@ int ibis::text::readString(uint32_t i, std::string &ret) const {
     long ierr = 0;
     int64_t positions[2];
     // open the file explicitly to read two starting positions
-    int des = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (des < 0) {
+    gzFile des = UnixOpen(fnm.c_str(), "rb");
+    if (des == Z_NULL) {
         startPositions(thePart->currentDataDir(), 0, 0);
-        des = UnixOpen(fnm.c_str(), OPEN_READONLY);
-        if (des < 0) {
+        des = UnixOpen(fnm.c_str(), "rb");
+        if (des == Z_NULL) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- text::readString failed to open file \""
                 << fnm << "\"";
@@ -3050,8 +3045,8 @@ int ibis::text::readString(uint32_t i, std::string &ret) const {
     if (ierr != static_cast<long>(i*sizeof(int64_t))) {
         (void) UnixClose(des);
         startPositions(thePart->currentDataDir(), 0, 0);
-        des = UnixOpen(fnm.c_str(), OPEN_READONLY);
-        if (des < 0) {
+        des = UnixOpen(fnm.c_str(), "rb");
+        if (des == Z_NULL) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- text::readString failed to open file \""
                 << fnm << "\"";
@@ -3071,8 +3066,8 @@ int ibis::text::readString(uint32_t i, std::string &ret) const {
     if (ierr != static_cast<long>(sizeof(positions))) {
         (void) UnixClose(des);
         startPositions(thePart->currentDataDir(), 0, 0);
-        des = UnixOpen(fnm.c_str(), OPEN_READONLY);
-        if (des < 0) {
+        des = UnixOpen(fnm.c_str(), "rb");
+        if (des == Z_NULL) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- text::readString failed to open file \""
                 << fnm << "\"";
@@ -3102,8 +3097,8 @@ int ibis::text::readString(uint32_t i, std::string &ret) const {
         (i*sizeof(int64_t), i*sizeof(int64_t)+sizeof(positions));
 
     fnm.erase(fnm.size()-3); // remove ".sp"
-    int datafile = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (datafile < 0) {
+    gzFile datafile = UnixOpen(fnm.c_str(), "rb");
+    if (datafile == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- text::readString failed to open file \""
             << fnm << "\"";
@@ -3186,11 +3181,11 @@ int ibis::text::readStrings1(const ibis::bitvector &msk,
     long ierr = 0;
     int64_t positions[2];
     // open the file with the starting positions
-    int dsp = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (dsp < 0) {
+    gzFile dsp = UnixOpen(fnm.c_str(), "rb");
+    if (dsp == Z_NULL) {
         startPositions(thePart->currentDataDir(), 0, 0);
-        dsp = UnixOpen(fnm.c_str(), OPEN_READONLY);
-        if (dsp < 0) {
+        dsp = UnixOpen(fnm.c_str(), "rb");
+        if (dsp == Z_NULL) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- " << evt << " failed to open file \""
                 << fnm << "\" for reading";
@@ -3204,8 +3199,8 @@ int ibis::text::readStrings1(const ibis::bitvector &msk,
 
     // open the file with the raw string values
     fnm.erase(fnm.size()-3);
-    int draw = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (draw < 0) {
+    gzFile draw = UnixOpen(fnm.c_str(), "rb");
+    if (draw == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to open file \""
             << fnm << "\" for reading";
@@ -3326,8 +3321,8 @@ int ibis::text::readStrings2(const ibis::bitvector& mask,
     }
 
     fnm.erase(fnm.size()-3); // remove .sp
-    int fdata = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdata < 0) {
+    gzFile fdata = UnixOpen(fnm.c_str(), "rb");
+    if (fdata == Z_NULL) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- " << evt << " failed to open data file "
             << fnm;
@@ -3410,7 +3405,7 @@ const char* ibis::text::findString(const char *str) const {
     std::string data = thePart->currentDataDir();
     data += FASTBIT_DIRSEP;
     data += m_name;
-    FILE *fdata = fopen(data.c_str(), "rb");
+    gzFile fdata = gzopen(data.c_str(), "rb");
     if (fdata == 0) {
         LOGGER(ibis::gVerbose > 1)
             << "Warning -- text::findString can not open data file \""
@@ -3432,15 +3427,15 @@ const char* ibis::text::findString(const char *str) const {
 
     std::string sp = data;
     sp += ".sp";
-    FILE *fsp = fopen(sp.c_str(), "rb");
-    if (fsp == 0) { // try again
+    gzFile fsp = gzopen(sp.c_str(), "rb");
+    if (fsp == Z_NULL) { // try again
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
-        if (fsp == 0) { // really won't work out
+        fsp = gzopen(sp.c_str(), "rb");
+        if (fsp == Z_NULL) { // really won't work out
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- text::findString can not create or open file \""
                 << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return 0;
         }
     }
@@ -3449,16 +3444,16 @@ const char* ibis::text::findString(const char *str) const {
     long begin = 0; // beginning position (file offset) of the bytes in buf
     long jbuf = 0; // number of bytes in buffer
     long curr;
-    if (1 > fread(&curr, sizeof(curr), 1, fsp)) {
+    if (1 > gzread(fsp, &curr, sizeof(curr))) {
         // odd to be sure, but try again anyway
-        fclose(fsp);
+        gzclose(fsp);
         startPositions(thePart->currentDataDir(), buf, nbuf);
-        fsp = fopen(sp.c_str(), "rb");
+        fsp = gzopen(sp.c_str(), "rb");
         if (fsp == 0) { // really won't work out
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- text::findString can not create, open or read "
                 "starting positions file \"" << sp << "\"";
-            fclose(fdata);
+            gzclose(fdata);
             return 0;
         }
     }
@@ -3467,9 +3462,9 @@ const char* ibis::text::findString(const char *str) const {
     long next = 0;
     bool found = false;
     if (str == 0 || *str == 0) { // only match empty strings
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0 && ! found) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0 && ! found) {
             bool moresp = true;
-            ierr = fread(&next, sizeof(next), 1, fsp);
+            ierr = gzread(fsp, &next, sizeof(next));
             if (ierr < 1 || next > begin+jbuf) {
                 LOGGER(ibis::gVerbose > 1)
                     << "Warning -- text::findString is to skip " << jbuf
@@ -3485,15 +3480,15 @@ const char* ibis::text::findString(const char *str) const {
                 }
                 ++ irow;
                 curr = next;
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back a word
-                fseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -3502,9 +3497,9 @@ const char* ibis::text::findString(const char *str) const {
     }
     else { // normal null-terminated strings
         const long slen = std::strlen(str);
-        while ((jbuf = fread(buf, 1, nbuf, fdata)) > 0 && ! found) {
+        while ((jbuf = gzread(fdata, buf, nbuf)) > 0 && ! found) {
             bool moresp = true;
-            ierr = fread(&next, sizeof(next), 1, fsp);
+            ierr = gzread(fsp, &next, sizeof(next));
             if (ierr < 1 || next > begin+jbuf) {
                 LOGGER(ibis::gVerbose > 1)
                     << "Warning -- text::findString is to skip " << jbuf
@@ -3533,15 +3528,15 @@ const char* ibis::text::findString(const char *str) const {
                 }
                 ++ irow;
                 curr = next;
-                moresp = (feof(fsp) == 0);
+                moresp = (gzeof(fsp) == 0);
                 if (moresp)
-                    moresp = (1 == fread(&next, sizeof(next), 1, fsp));
+                    moresp = (1 == gzread(fsp, &next, sizeof(next)));
                 if (! moresp)
                     break;
             }
             if (moresp) {// move back a word
-                fseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
-                fseek(fdata, curr, SEEK_SET);
+                gzseek(fsp, -static_cast<long>(sizeof(next)), SEEK_CUR);
+                gzseek(fdata, curr, SEEK_SET);
                 begin = curr;
             }
             else
@@ -3549,8 +3544,8 @@ const char* ibis::text::findString(const char *str) const {
         } // while (jbuf > 0) -- as long as there are bytes to examine
     }
 
-    fclose(fsp);
-    fclose(fdata);
+    gzclose(fsp);
+    gzclose(fdata);
     ibis::fileManager::instance().recordPages(0, next);
     ibis::fileManager::instance().recordPages
         (0, sizeof(uint64_t)*thePart->nRows());
@@ -3915,8 +3910,8 @@ int ibis::text::writeStrings(const char *to, const char *from,
         return -10;
     }
 
-    int rffile = UnixOpen(from, OPEN_READONLY);
-    if (rffile < 0) {
+    gzFile rffile = UnixOpen(from, "rb");
+    if (rffile == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file " << from
             << " for reading";
@@ -3927,8 +3922,8 @@ int ibis::text::writeStrings(const char *to, const char *from,
     (void)_setmode(rffile, _O_BINARY);
 #endif
 
-    int sffile = UnixOpen(spfrom, OPEN_READONLY);
-    if (sffile < 0) {
+    gzFile sffile = UnixOpen(spfrom, "rb");
+    if (sffile == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file " << spfrom
             << " for reading";
@@ -3939,8 +3934,8 @@ int ibis::text::writeStrings(const char *to, const char *from,
     (void)_setmode(sffile, _O_BINARY);
 #endif
 
-    int rtfile = UnixOpen(to, OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (rtfile < 0) {
+    gzFile rtfile = UnixOpen(to, "ab");
+    if (rtfile == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file " << to
             << " for writing";
@@ -3951,8 +3946,8 @@ int ibis::text::writeStrings(const char *to, const char *from,
     (void)_setmode(rtfile, _O_BINARY);
 #endif
 
-    int stfile = UnixOpen(spto, OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (rtfile < 0) {
+    gzFile stfile = UnixOpen(spto, "ab");
+    if (rtfile == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to open file " << spto
             << " for writing";

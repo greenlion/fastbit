@@ -300,11 +300,11 @@ int ibis::pale::write(const char* dt) const {
         fname = 0; // break the link with the named file
     }
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) { // try again
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) { // try again
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock =open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing ... " << (errno ? strerror(errno) : "??");
@@ -312,12 +312,13 @@ int ibis::pale::write(const char* dt) const {
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -373,7 +374,7 @@ int ibis::pale::write(const char* dt) const {
 } // ibis::pale::write
 
 /// Write to an open file.
-int ibis::pale::write32(int fdes) const {
+int ibis::pale::write32(gzFile fdes) const {
     std::string evt = "pale";
     if (ibis::gVerbose > 2) {
         evt += '[';
@@ -512,7 +513,7 @@ int ibis::pale::write32(int fdes) const {
 } // ibis::pale::write32
 
 /// Write to an open file.  Append the index to the file.
-int ibis::pale::write64(int fdes) const {
+int ibis::pale::write64(gzFile fdes) const {
     std::string evt = "pale";
     if (ibis::gVerbose > 2) {
         evt += '[';
@@ -653,8 +654,8 @@ int ibis::pale::write64(int fdes) const {
 int ibis::pale::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0)
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL)
         return -1;
 
     char header[8];

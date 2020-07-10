@@ -20,6 +20,7 @@
 #include <math.h>       // fabs, floor, ceil, log10, nextafter...
 #include <stdlib.h>
 #include <stdio.h>      // sprintf, remove
+#include <zlib.h>
 #include <sys/stat.h>   // stat, mkdir, chmod
 #include <fcntl.h>      // open, close
 #if !defined(unix) && defined(_WIN32)
@@ -119,139 +120,25 @@
 #endif
 #endif
 
-// mapping the names of the low level IO functions defined in <unistd.h>
-#if defined(_MSC_VER) && defined(_WIN32)
-#define UnixOpen  ::_open
-#define UnixClose ::_close
-#define UnixRead  ::_read
-#define UnixWrite ::_write
-#define UnixSeek  ::_lseek
-#define UnixFlush  ::_commit
-#define UnixSnprintf ::_snprintf
-#define UnixStat  ::_stat
-#define UnixFStat ::_fstat
-#define Stat_T    struct _stat
-#else //_BSD_SOURCE || _ISOC99_SOURCE || _XOPEN_SOURCE >= 500 || _POSIX_C_SOURCE >= 200112L
-#define UnixOpen  ::open
-#define UnixClose ::close
-#define UnixRead  ::read
-#define UnixWrite ::write
-#define UnixSeek  ::lseek
-#define UnixFlush ::fsync
+// These function used to map IO to the low level file/io operations (open/write/close/etc)
+// but they now use the gzip compression zlib interface
+#define UnixOpen  gzopen
+#define UnixClose gzclose
+#define UnixRead  gzread
+#define UnixWrite gzwrite 
+#define UnixSeek  gzseek
+#define UnixFlush gzflush
 #define UnixSnprintf ::snprintf
 #define UnixStat  ::stat
 #define UnixFStat ::fstat
 #define Stat_T    struct stat
-#endif
 
-// define the option for opening a file in read only mode
-#if defined(O_RDONLY)
-#if defined(O_LARGEFILE)
-#if defined(O_BINARY)
-#define OPEN_READONLY O_RDONLY | O_BINARY | O_LARGEFILE
-#else
-#define OPEN_READONLY O_RDONLY | O_LARGEFILE
-#endif
-#elif defined(O_BINARY)
-#define OPEN_READONLY O_RDONLY | O_BINARY
-#else
-#define OPEN_READONLY O_RDONLY
-#endif
-#elif defined(_O_RDONLY)
-#if defined(_O_LARGEFILE)
-#define OPEN_READONLY _O_RDONLY | _O_LARGEFILE | _O_BINARY
-#else
-#define OPEN_READONLY _O_RDONLY | _O_BINARY
-#endif
-#endif
-// define the option for opening a new file for writing
-#if defined(O_WRONLY)
-#if defined(O_LARGEFILE)
-#if defined(O_BINARY)
-#define OPEN_WRITENEW O_WRONLY | O_BINARY | O_CREAT | O_TRUNC | O_LARGEFILE
-#else
-#define OPEN_WRITENEW O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE
-#endif
-#elif defined(O_BINARY)
-#define OPEN_WRITENEW O_WRONLY | O_BINARY | O_CREAT | O_TRUNC
-#else
-#define OPEN_WRITENEW O_WRONLY | O_CREAT | O_TRUNC
-#endif
-#elif defined(_O_WRONLY)
-#if defined(_O_LARGEFILE)
-#define OPEN_WRITENEW _O_WRONLY|_O_CREAT|_O_TRUNC|_O_LARGEFILE|_O_BINARY
-#else
-#define OPEN_WRITENEW _O_WRONLY|_O_CREAT|_O_TRUNC|_O_BINARY
-#endif
-#endif
-// define the option for opening an existing file for writing
-#if defined(O_WRONLY)
-#if defined(O_LARGEFILE)
-#if defined(O_BINARY)
-#define OPEN_WRITEADD O_WRONLY | O_BINARY | O_CREAT | O_LARGEFILE
-#else
-#define OPEN_WRITEADD O_WRONLY | O_CREAT| O_LARGEFILE
-#endif
-#elif defined(O_BINARY)
-#define OPEN_WRITEADD O_WRONLY | O_BINARY | O_CREAT
-#else
-#define OPEN_WRITEADD O_WRONLY | O_CREAT
-#endif
-#elif defined(_O_WRONLY)
-#if defined(_O_LARGEFILE)
-#define OPEN_WRITEADD _O_WRONLY | _O_CREAT | _O_LARGEFILE | _O_BINARY
-#else
-#define OPEN_WRITEADD _O_WRONLY | _O_CREAT | _O_BINARY
-#endif
-#endif
-// define the option for opening a file for reading and writing
-#if defined(O_RDWR)
-#if defined(O_LARGEFILE)
-#if defined(O_BINARY)
-#define OPEN_READWRITE O_RDWR | O_BINARY | O_CREAT | O_LARGEFILE
-#else
-#define OPEN_READWRITE O_RDWR | O_CREAT | O_LARGEFILE
-#endif
-#elif defined(O_BINARY)
-#define OPEN_READWRITE O_RDWR | O_BINARY | O_CREAT
-#else
-#define OPEN_READWRITE O_RDWR | O_CREAT
-#endif
-#elif defined(_O_RDWR)
-#if defined(_O_LARGEFILE)
-#define OPEN_READWRITE _O_RDWR | _O_CREAT | _O_LARGEFILE | _O_BINARY
-#else
-#define OPEN_READWRITE _O_RDWR | _O_CREAT | _O_BINARY
-#endif
-#endif
-// define the option for opening an existing file for appending only
-#if defined(O_WRONLY)
-#if defined(O_LARGEFILE)
-#if defined(O_BINARY)
-#define OPEN_APPENDONLY O_WRONLY | O_BINARY | O_CREAT | O_APPEND | O_LARGEFILE
-#else
+#define OPEN_READONLY   O_RDONLY | O_LARGEFILE
+#define OPEN_WRITENEW   O_WRONLY |  O_CREAT | O_TRUNC | O_LARGEFILE
+#define OPEN_WRITEADD   O_WRONLY | O_CREAT | O_LARGEFILE 
+#define OPEN_READWRITE  O_RDWR | O_CREAT | O_LARGEFILE
 #define OPEN_APPENDONLY O_WRONLY | O_CREAT | O_APPEND | O_LARGEFILE
-#endif
-#elif defined(O_BINARY)
-#define OPEN_APPENDONLY O_WRONLY | O_BINARY | O_CREAT | O_APPEND
-#else
-#define OPEN_APPENDONLY O_WRONLY | O_CREAT | O_APPEND
-#endif
-#elif defined(_O_WRONLY)
-#if defined(_O_LARGEFILE)
-#define OPEN_APPENDONLY _O_WRONLY | _O_CREAT | _O_APPEND | _O_LARGEFILE | _O_BINARY
-#else
-#define OPEN_APPENDONLY _O_WRONLY | _O_CREAT | _O_APPEND | _O_BINARY
-#endif
-#endif
-// the default file mode (associate with _O_CREAT)
-#if defined(_MSC_VER) && defined(_WIN32)
-#define OPEN_FILEMODE _S_IREAD | _S_IWRITE
-#elif defined(S_IRGRP) && defined(S_IWGRP) && defined(S_IROTH)
-#define OPEN_FILEMODE S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH
-#else
-#define OPEN_FILEMODE S_IRUSR | S_IWUSR
-#endif
+#define OPEN_FILEMODE   S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH
 
 #if defined(_MSC_VER)
 
@@ -329,10 +216,6 @@ inline uint64_t _rotl64( uint64_t x, int8_t r ) {
 #endif
 #define IBIS_BLOCK_GUARD                                        \
     ibis::util::guard IBIS_GUARD_NAME = ibis::util::makeGuard
-
-#ifndef FASTBIT_STRERR
-#  define FASTBIT_STRERR (errno ? strerror(errno) : "(no error)")
-#endif // ifndef FASTBIT_STRERR
 
 namespace std { // extend namespace std slightly
     // specialization of less<> to work with char*
@@ -497,8 +380,8 @@ namespace ibis {
         FASTBIT_CXX_DLLSPEC const char*
         readString(char*& buf, const char *delim=0);
 
-        int64_t read(int, void*, int64_t);
-        int64_t write(int, const void*, int64_t);
+        int64_t read(gzFile, void*, int64_t);
+        int64_t write(gzFile, const void*, int64_t);
 
         void removeDir(const char* name, bool leaveDir=false);
         int makeDir(const char* dir);

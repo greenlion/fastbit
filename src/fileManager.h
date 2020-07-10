@@ -82,7 +82,7 @@ public:
 		ACCESS_PREFERENCE pref=MMAP_LARGE_FILES);
     int tryGetFile(const char* name, storage** st,
 		   ACCESS_PREFERENCE pref=MMAP_LARGE_FILES);
-    static storage* getFileSegment(const char* name, const int fdes,
+    static storage* getFileSegment(const char* name, const gzFile fdes,
 				   const off_t b, const off_t e);
 
     // /// Obtain a read lock on the file manager.
@@ -241,7 +241,7 @@ public:
     virtual ~storage() {clear();}
 
     storage(const char* fname, const off_t begin, const off_t end);
-    storage(const int fdes, const off_t begin, const off_t end);
+    storage(const gzFile fdes, const off_t begin, const off_t end);
     storage(const char* begin, const char* end);
     storage(char* addr, size_t num);
     storage(const storage& rhs);
@@ -285,7 +285,7 @@ public:
     // IO functions
     virtual void printStatus(std::ostream& out) const;
     off_t read(const char* fname, const off_t begin, const off_t end);
-    off_t read(const int fdes, const off_t begin, const off_t end);
+    off_t read(const gzFile fdes, const off_t begin, const off_t end);
     void  write(const char* file) const;
 
     inline void swap(storage& rhs) throw ();
@@ -398,6 +398,7 @@ private:
     size_t fsize;    // the size of the mapped portion of file
     void *map_begin; // actual address returned by mmap
 #endif
+
 
     // not implemented, to prevent automatic generation
     roFile(const roFile&);

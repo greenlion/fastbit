@@ -459,8 +459,8 @@ int ibis::ambit::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0)
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL)
         return -1;
 
     char header[8];
@@ -664,9 +664,9 @@ int ibis::ambit::read(const char* f) {
 /// Read the content of a file starting from an arbitrary position.  All
 /// bitmap offsets in the same index file share the same offset size of
 /// header[6] bytes.
-int ibis::ambit::read(int fdes, size_t start, const char *fn,
+int ibis::ambit::read(gzFile fdes, size_t start, const char *fn,
                       const char *header) {
-    if (fdes < 0) return -1;
+    if (fdes == Z_NULL) return -1;
     if (start != static_cast<uint32_t>(UnixSeek(fdes, start, SEEK_SET)))
         return -2;
 
@@ -949,23 +949,24 @@ int ibis::ambit::write(const char* dt) const {
     }
     ibis::fileManager::instance().flushFile(fnm.c_str());
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) { // try again
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) { // try again
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \""
                 << fnm << "\" for write";
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -1010,7 +1011,7 @@ int ibis::ambit::write(const char* dt) const {
     return ierr;
 } // ibis::ambit::write
 
-int ibis::ambit::write32(int fdes) const {
+int ibis::ambit::write32(gzFile fdes) const {
     const off_t start = UnixSeek(fdes, 0, SEEK_CUR);
     if (start < 8) {
         LOGGER(ibis::gVerbose > 0)
@@ -1164,7 +1165,7 @@ int ibis::ambit::write32(int fdes) const {
     }
 } // ibis::ambit::write32
 
-int ibis::ambit::write64(int fdes) const {
+int ibis::ambit::write64(gzFile fdes) const {
     const off_t start = UnixSeek(fdes, 0, SEEK_CUR);
     if (start < 8) {
         LOGGER(ibis::gVerbose > 0)

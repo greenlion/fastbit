@@ -48,7 +48,7 @@
 //  #define __USE_UNIX98
 //  #endif
 #ifndef HAVE_STRUCT_TIMESPEC
-#if defined(__CYGWIN__) || defined(__MINGW32__) || (_MSC_VER+0 >= 1900)
+#if defined(__CYGWIN__) || defined(__MINGW32__)
 #  define HAVE_STRUCT_TIMESPEC
 #endif
 #endif
@@ -397,6 +397,9 @@ typedef int (*FastBitReadExtArray)
 #else
 #  include <iosfwd>	// std::cout, std::clog
 #endif
+// #ifndef REASON
+// #  define REASON " " << strerror(errno) << std::endl;
+// #endif // ifndef REASON
 
 #include <vector>	// std::vector
 #include <functional>	// std::less, std::binary_function<>

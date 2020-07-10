@@ -200,8 +200,8 @@ protected:
     array_t<double> vals;
 
     // protected member functions
-    int write32(int fdes) const;
-    int write64(int fdes) const;
+    int write32(gzFile fdes) const;
+    int write64(gzFile fdes) const;
     uint32_t locate(const double& val) const;
 
     // a dummy constructor
@@ -345,8 +345,8 @@ protected:
 
     array_t<uint32_t> cnts; // the counts for each distinct value
 
-    int write32(int fdes) const;
-    int write64(int fdes) const;
+    int write32(gzFile fdes) const;
+    int write64(gzFile fdes) const;
     void evalGE(ibis::bitvector& res, uint32_t b) const;
     void evalEQ(ibis::bitvector& res, uint32_t b) const;
 
@@ -434,8 +434,8 @@ protected:
     array_t<uint32_t> bases;// the values of the bases used
 
     // protected member functions to be used by derived classes
-    int write32(int fdes) const;
-    int write64(int fdes) const;
+    int write32(gzFile fdes) const;
+    int write64(gzFile fdes) const;
     virtual void clear();
     virtual size_t getSerialSize() const throw();
 
@@ -580,8 +580,8 @@ private:
     void activateCoarse(uint32_t i) const; // activate one bitmap
     void activateCoarse(uint32_t i, uint32_t j) const;
 
-    int writeCoarse32(int fdes) const;
-    int writeCoarse64(int fdes) const;
+    int writeCoarse32(gzFile fdes) const;
+    int writeCoarse64(gzFile fdes) const;
     int readCoarse(const char *fn);
     void clearCoarse();
 
@@ -641,8 +641,8 @@ private:
     void activateCoarse(uint32_t i) const; // activate one bitmap
     void activateCoarse(uint32_t i, uint32_t j) const;
 
-    int writeCoarse32(int fdes) const;
-    int writeCoarse64(int fdes) const;
+    int writeCoarse32(gzFile fdes) const;
+    int writeCoarse64(gzFile fdes) const;
     int readCoarse(const char *fn);
 
     bylt(const bylt&);
@@ -696,8 +696,8 @@ private:
     void activateCoarse(uint32_t i) const; // activate one bitmap
     void activateCoarse(uint32_t i, uint32_t j) const;
 
-    int writeCoarse32(int fdes) const;
-    int writeCoarse64(int fdes) const;
+    int writeCoarse32(gzFile fdes) const;
+    int writeCoarse64(gzFile fdes) const;
     int readCoarse(const char *fn);
 
     zona(const zona&);

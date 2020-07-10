@@ -114,11 +114,11 @@ private:
     // private member variables
     const ibis::column* col;    ///!< Each roster is for one column.
     array_t<uint32_t> ind;	///!< @c [ind[i]] is the ith smallest value.
-    mutable int inddes;		///!< The descriptor for the @c .ind file.
+    mutable gzFile inddes;		///!< The descriptor for the @c .ind file.
 
     // private member functions
-    void clear() {ind.clear(); if (inddes>=0) UnixClose(inddes);};
-    int write(FILE* fptr) const;
+    void clear() {ind.clear(); if (inddes != Z_NULL) UnixClose(inddes);};
+    int write(gzFile fptr) const;
 
     /// The in-core sorting function to build the roster list.
     void icSort(const char* f = 0);
@@ -155,7 +155,7 @@ inline uint32_t ibis::roster::operator[](uint32_t i) const {
     if (i < ind.size()) {
 	tmp = ind[i];
     }
-    else if (inddes >= 0) {
+    else if (inddes != Z_NULL) {
 	if (static_cast<off_t>(i*sizeof(uint32_t)) !=
 	    UnixSeek(inddes, i*sizeof(uint32_t), SEEK_SET))
 	    return tmp;

@@ -2150,8 +2150,8 @@ int ibis::tafel::writeData(const char* dir, const char* tname,
         std::string cnm = mydir;
         cnm += FASTBIT_DIRSEP;
         cnm += (*it).first;
-        int fdes = UnixOpen(cnm.c_str(), OPEN_WRITEADD, OPEN_FILEMODE);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(cnm.c_str(), "wb+");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose >= 0)
                 << "tafel::writeData(" << mydir << ") failed to open file "
                 << cnm << " for writing";
@@ -2330,8 +2330,8 @@ int ibis::tafel::writeData(const char* dir, const char* tname,
         case ibis::BLOB: {
             std::string spname = cnm;
             spname += ".sp";
-            int sdes = UnixOpen(spname.c_str(), OPEN_READWRITE, OPEN_FILEMODE);
-            if (sdes < 0) {
+            gzFile sdes = UnixOpen(spname.c_str(), "rwb");
+            if (sdes == Z_NULL) {
                 LOGGER(ibis::gVerbose >= 0)
                     << "tafel::writeData(" << mydir << ") failed to open file "
                     << spname << " for writing the starting positions";

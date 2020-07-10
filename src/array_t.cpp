@@ -241,7 +241,7 @@ ibis::array_t<T>::array_t(ibis::fileManager::storage* rhs,
 /// attempt to read @c end - @c begin bytes from the file starting at
 /// offset @c begin.
 template<class T>
-ibis::array_t<T>::array_t(const int fdes, const off_t begin, const off_t end)
+ibis::array_t<T>::array_t(const gzFile fdes, const off_t begin, const off_t end)
     : actual(new ibis::fileManager::storage(fdes, begin, end)),
       m_begin((T*) (actual != 0 ? actual->begin() : 0)),
       m_end((T*) (actual != 0 ? actual->end() : 0)) {
@@ -299,7 +299,7 @@ ibis::array_t<T>::array_t(const char *fn, const off_t begin, const off_t end)
 /// Constructor.  Reads a portion of the named file through the specified
 /// file descriptor.
 template<class T>
-ibis::array_t<T>::array_t(const char *fn, const int fdes,
+ibis::array_t<T>::array_t(const char *fn, const gzFile fdes,
                           const off_t begin, const off_t end)
     : actual(ibis::fileManager::getFileSegment(fn, fdes, begin, end)),
       m_begin(actual ? (T*) actual->begin() : (T*)0),
@@ -1468,7 +1468,7 @@ void ibis::array_t<T>::truncate(size_t nnew, size_t start) {
 template<class T>
 void ibis::array_t<T>::resize(size_t n) {
     if (n > 0x7FFFFFFFU) {
-        throw "array_t must have less than 2^31 elements" IBIS_FILE_LINE;
+        throw "array_t must have less than 2^31 elements";
     }
 
     if (n == 0) {
@@ -1508,7 +1508,7 @@ void ibis::array_t<T>::resize(size_t n) {
 template<class T>
 void ibis::array_t<T>::reserve(size_t n) {
     if (n > 0x7FFFFFFFU) {
-        throw "array_t must have less than 2^31 elements" IBIS_FILE_LINE;
+        throw "array_t must have less than 2^31 elements";
     }
     if (n == 0) { // special case with n = 0
         n = 32 / sizeof(T);
@@ -1586,7 +1586,7 @@ ibis::array_t<T>::insert(typename ibis::array_t<T>::iterator p, const T& val) {
 
     const difference_type n0 = m_end - m_begin;
     if (n0 >= 0x7FFFFFFFU) {
-        throw "array_t must have less than 2^31 elements" IBIS_FILE_LINE;
+        throw "array_t must have less than 2^31 elements";
     }
 
     if (actual != 0 && actual->filename() == 0 &&
@@ -1650,7 +1650,7 @@ ibis::array_t<T>::insert(typename ibis::array_t<T>::iterator p, size_t n,
         const difference_type nold = m_end - m_begin;
         size_t nnew = static_cast<size_t>(nold + (nold>=(long)n?nold:n));
         if (nnew > 0x7FFFFFFFU) {
-            throw "array_t must have less than 2^31 elements" IBIS_FILE_LINE;
+            throw "array_t must have less than 2^31 elements";
         }
 
         const size_t jp = p - m_begin;
@@ -1698,7 +1698,7 @@ ibis::array_t<T>::insert(typename ibis::array_t<T>::iterator p,
                                       m_end - m_begin : 0);
         size_t nnew = static_cast<size_t>(nold + (nold>=n ? nold : n));
         if (nnew > 0x7FFFFFFFU) {
-            throw "array_t must have less than 2^31 elements" IBIS_FILE_LINE;
+            throw "array_t must have less than 2^31 elements";
         }
 
         const size_t jp = p - m_begin;
@@ -1799,7 +1799,7 @@ off_t ibis::array_t<T>::read(const char* fname, const off_t begin,
 
 /// Read an array from a file already open.
 template<class T>
-off_t ibis::array_t<T>::read(const int fdes, const off_t begin,
+off_t ibis::array_t<T>::read(const gzFile fdes, const off_t begin,
                              const off_t end) {
     if (fdes < 0) return -2;
     off_t nread = actual->read(fdes, begin, end);
@@ -1824,7 +1824,7 @@ int ibis::array_t<T>::write(const char* file) const {
     if (m_end <= m_begin) return 0; // nothing to write
 
     off_t n, i;
-    FILE *out = fopen(file, "wb");
+    gzFile out = gzopen(file, "wb");
     if (out == 0) {
         LOGGER(ibis::gVerbose >= 0)
             << "array_t<T>::write is unable open file \"" << file << "\" ... "
@@ -1833,8 +1833,8 @@ int ibis::array_t<T>::write(const char* file) const {
     }
 
     n = m_end - m_begin;
-    i = fwrite(reinterpret_cast<void*>(m_begin), sizeof(T), n, out);
-    fclose(out); // close the file
+    i = gzwrite(out, reinterpret_cast<void*>(m_begin), sizeof(T) * n);
+    gzclose(out);
     if (i != n) {
         LOGGER(ibis::gVerbose >= 0)
             << "array_t<T>::write expects to write " << n << ' '
@@ -1848,13 +1848,13 @@ int ibis::array_t<T>::write(const char* file) const {
 /// Write the content of the array to a file already opened.  The content
 /// of the array is written out in binary.
 template<class T>
-int ibis::array_t<T>::write(FILE* fptr) const {
-    if (fptr == 0) return -1;
+int ibis::array_t<T>::write(gzFile fptr) const {
+    if (fptr == Z_NULL) return -1;
     if (m_end <= m_begin) return 0;
 
     off_t n, i;
     n = m_end - m_begin;
-    i = fwrite(reinterpret_cast<void*>(m_begin), sizeof(T), n, fptr);
+    i = gzwrite(fptr, reinterpret_cast<void*>(m_begin), sizeof(T) * n);
     if (i != n) {
         LOGGER(ibis::gVerbose >= 0)
             << "array_t<T>::write() expects to write " << n << ' '

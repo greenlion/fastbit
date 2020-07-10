@@ -900,8 +900,8 @@ int ibis::util::copy(const char* to, const char* from) {
 #endif
         ) return -4;
 
-    int fdes = UnixOpen(from, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(from, "rb");
+    if (fdes = Z_NULL) {
         LOGGER(errno != ENOENT || ibis::gVerbose > 10)
             << "Warning -- util::copy(" << to << ", " << from
             << ") failed to open " << from << " ... "
@@ -913,8 +913,8 @@ int ibis::util::copy(const char* to, const char* from) {
     (void)_setmode(fdes, _O_BINARY);
 #endif
 
-    int tdes = UnixOpen(to, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (tdes < 0) {
+    gzFile tdes = UnixOpen(to, "wb");
+    if (tdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- util::copy(" << to << ", " << from
             << ") failed to open " << to << " ... "
@@ -970,7 +970,7 @@ int ibis::util::copy(const char* to, const char* from) {
 /// piece is no larger than 2^31 bytes, and the size of this piece is
 /// implementation dependent.  This function attempts use the return value
 /// from read when it is a posive value.
-int64_t ibis::util::read(int fdes, void *buf, int64_t nbytes) {
+int64_t ibis::util::read(gzFile fdes, void *buf, int64_t nbytes) {
     int64_t ierr = nbytes;
     int64_t offset = 0;
     while (ierr > 0) {
@@ -996,7 +996,7 @@ int64_t ibis::util::read(int fdes, void *buf, int64_t nbytes) {
 /// typically a piece is no larger than 2^31 bytes depending implementation
 /// details.  This function attempts use the return value from write when
 /// it is a posive value.
-int64_t ibis::util::write(int fdes, const void *buf, int64_t nbytes) {
+int64_t ibis::util::write(gzFile fdes, const void *buf, int64_t nbytes) {
     long ierr = 0;
     int64_t offset = 0;
     while (nbytes > 0) {
@@ -1181,9 +1181,9 @@ void ibis::util::removeDir(const char* name, bool leaveDir) {
     if (olddir) {
         ierr = chdir(olddir);
         if (0 != ierr) {
-            ibis::util::logMessage
-                ("Warning", "util::removeDir cannot return to %s ... %s",
-                 olddir, FASTBIT_STRERR);
+            ibis::util::logMessage("Warning", "util::removeDir cannot "
+                                   "return to %s ... %s", olddir,
+                                   (errno ? strerror(errno) : "???"));
         }
         delete [] olddir;
     }
@@ -1193,7 +1193,7 @@ void ibis::util::removeDir(const char* name, bool leaveDir) {
         if (ierr != 0) {
             LOGGER(ibis::gVerbose >= 0)
                 << "Warning -- util::removeDir can not remove directory "
-                << name << " ... " << FASTBIT_STRERR;
+                << name << " ... " << (errno ? strerror(errno) : "???");
         }
         else {
             LOGGER(ibis::gVerbose > 0)
@@ -2003,7 +2003,7 @@ int ibis::util::writeLogFileHeader(FILE *fptr, const char *fname) {
         std::ostringstream oss;
         oss << ibis::util::getVersionNumber();
         tmp += oss.str();
-        tmp += ", Copyright (c) (2000)-2016";
+        tmp += ", Copyright (c) (c)-2015";
         str = tmp.c_str();
     }
     int ierr = 0;

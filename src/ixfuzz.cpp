@@ -311,8 +311,8 @@ void ibis::fuzz::activateCoarse() const {
         }
     }
     else if (fname) { // using the named file directly
-        int fdes = UnixOpen(fname, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(fname, "rb");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open file \"" << fname
                 << "\" ... " << (errno ? strerror(errno) : "??");
@@ -436,8 +436,8 @@ void ibis::fuzz::activateCoarse(uint32_t i) const {
         }
     }
     else if (fname) { // using the named file directly
-        int fdes = UnixOpen(fname, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(fname, "rb");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << "failed to open file \""
                 << fname << "\" ... " << (errno ? strerror(errno) : "??");
@@ -538,8 +538,8 @@ void ibis::fuzz::activateCoarse(uint32_t i, uint32_t j) const {
         }
     }
     else if (fname) { // using the named file directly
-        int fdes = UnixOpen(fname, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(fname, "rb");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << "failed to open file \""
                 << fname << "\" ... " << (errno ? strerror(errno) : "??");
@@ -1131,11 +1131,11 @@ int ibis::fuzz::write(const char* dt) const {
     if (fname != 0 || str != 0)
         activate(); // activate all bitvectors
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) { // try again
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) { // try again
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing ... " << (errno ? strerror(errno) : "??");
@@ -1143,12 +1143,13 @@ int ibis::fuzz::write(const char* dt) const {
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -1208,7 +1209,7 @@ int ibis::fuzz::write(const char* dt) const {
 /// Write the coarse bins to an open file.  This function is to be called
 /// after calling ibis::relic::write32, however, it does not check for this
 /// fact!
-int ibis::fuzz::writeCoarse32(int fdes) const {
+int ibis::fuzz::writeCoarse32(gzFile fdes) const {
     if (cbounds.empty() || cbits.empty() || nrows == 0)
         return -4;
     std::string evt = "fuzz";
@@ -1269,7 +1270,7 @@ int ibis::fuzz::writeCoarse32(int fdes) const {
 /// Write the coarse bins to an open file.  This function is to be called
 /// after calling ibis::relic::write64, however, it does not check for this
 /// fact!
-int ibis::fuzz::writeCoarse64(int fdes) const {
+int ibis::fuzz::writeCoarse64(gzFile fdes) const {
     if (cbounds.empty() || cbits.empty() || nrows == 0)
         return -4;
     std::string evt = "fuzz";
@@ -1334,8 +1335,8 @@ int ibis::fuzz::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) return -1;
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) return -1;
 
     char header[8];
     IBIS_BLOCK_GUARD(UnixClose, fdes);
@@ -1494,8 +1495,8 @@ int ibis::fuzz::readCoarse(const char* fn) {
     std::string fnm;
     indexFileName(fnm, fn);
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) return -1;
+    gzFile fdes = UnixOpen(fnm.c_str(), "rb");
+    if (fdes == Z_NULL) return -1;
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);

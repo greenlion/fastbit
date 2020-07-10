@@ -53,7 +53,7 @@ public:
     }
 
     /// Write out whole array as binary.
-    virtual long write(FILE* fptr) const  = 0;
+    virtual long write(gzFile fptr) const  = 0;
     /// Write ith element as text.
     virtual void write(std::ostream& out, uint32_t i) const = 0;
 
@@ -139,7 +139,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<int32_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -205,7 +205,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<uint32_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -274,7 +274,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<int64_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -342,7 +342,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<uint64_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -410,7 +410,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<int16_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -478,7 +478,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<uint16_t>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -546,7 +546,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<signed char>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -614,7 +614,7 @@ public:
 	const ibis::column* c = rhs.col; rhs.col = col; col = c;
 	array_t<unsigned char>* a = rhs.array; rhs.array = array; array = a;}
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -662,7 +662,7 @@ public:
     virtual ~colFloats() {delete array;}
 
     virtual bool   empty() const {return (col==0 || array==0);}
-    virtual uint32_t size() const {return (array ? array->size() : 0);}
+    virtual uint32_t size() const {return (array != (void*)NULL ? array->size() : 0);}
     virtual uint32_t elementSize() const {return sizeof(float);}
     virtual ibis::TYPE_T getType() const {return ibis::FLOAT;}
     virtual void* getArray() const {return array;}
@@ -682,7 +682,7 @@ public:
     virtual void   reduce(const array_t<uint32_t>& starts,
 			  ibis::selectClause::AGREGADO func);
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -751,7 +751,7 @@ public:
     virtual void   reduce(const array_t<uint32_t>& starts,
 			  ibis::selectClause::AGREGADO func);
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -816,7 +816,7 @@ public:
     virtual void reduce(const array_t<uint32_t>& starts,
 			ibis::selectClause::AGREGADO func);
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t i, uint32_t j, bundle* bdl);
@@ -891,7 +891,7 @@ public:
     virtual void reduce(const array_t<uint32_t>&,
 			ibis::selectClause::AGREGADO);
 
-    virtual long write(FILE* fptr) const;
+    virtual long write(gzFile fptr) const;
     virtual void write(std::ostream& out, uint32_t i) const;
 
     virtual void sort(uint32_t, uint32_t, bundle*);

@@ -124,7 +124,7 @@ public:
     // I/O functions.
     void read(const char *fn);
     void write(const char *fn) const;
-    void write(int fdes) const;
+    void write(gzFile fdes) const;
     void write(array_t<word_t>& arr) const;
 
     void compress();

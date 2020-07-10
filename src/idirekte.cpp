@@ -324,11 +324,12 @@ int ibis::direkte::construct0(const char* dfname) {
         sz /= elemsize;
         if (sz > nrows)
             sz = nrows;
-        int fdes = UnixOpen(dfname, OPEN_READONLY);
-        if (fdes < 0) {
+        int fdes_lock = open(dfname, OPEN_READONLY);
+        if (fdes_lock < 0) {
             ierr = -2; // failed to open file for reading
             return ierr;
         }
+        gzFile fdes = gzdopen(fdes_lock, "rb");
         IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
@@ -510,8 +511,8 @@ int ibis::direkte::construct(const char* dfname) {
         sz /= elemsize;
         if (sz > nrows)
             sz = nrows;
-        int fdes = UnixOpen(dfname, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(dfname, "rb");
+        if (fdes == Z_NULL) {
             ierr = -2; // failed to open file for reading
             return ierr;
         }
@@ -675,12 +676,11 @@ int ibis::direkte::write(const char* dt) const {
 
     if (fname != 0 || str != 0)
         activate();
-
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    int fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock  < 0 ) {
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for writing ... " << (errno ? strerror(errno) : 0);
@@ -688,12 +688,13 @@ int ibis::direkte::write(const char* dt) const {
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(fdes, _O_BINARY);
 #endif
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -833,9 +834,9 @@ void ibis::direkte::serialSizes(uint64_t &wkeys, uint64_t &woffsets,
 int ibis::direkte::read(const char* f) {
     std::string fnm;
     indexFileName(fnm, f);
-    int fdes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-    if (fdes < 0) return -1;
-
+    int fdes_lock =open(fnm.c_str(), OPEN_READONLY);
+    if (fdes_lock < 0) return -1;
+    gzFile fdes = gzdopen(fdes_lock, "rb");
     char header[8];
     IBIS_BLOCK_GUARD(UnixClose, fdes);
 #if defined(_WIN32) && defined(_MSC_VER)

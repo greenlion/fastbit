@@ -25,11 +25,11 @@
 /// nil, this function will attempt to sort the existing data records to
 /// build a roster list.
 ibis::roster::roster(const ibis::column* c, const char* dir)
-    : col(c), inddes(-1) {
+    : col(c), inddes(Z_NULL) {
     if (c == 0) return;  // nothing can be done
     (void) read(dir); // attempt to read the existing list
 
-    if (ind.size() == 0 && inddes < 0) {
+    if (ind.size() == 0 && inddes == Z_NULL) {
         // need to build a new roster list
         if (col->partition() == 0 || col->partition()->nRows() <
             ibis::fileManager::bytesFree() / (8+col->elementSize()))
@@ -38,7 +38,7 @@ ibis::roster::roster(const ibis::column* c, const char* dir)
             oocSort(dir);       // out of core sorting
     }
 
-    if (ibis::gVerbose > 6 && (ind.size() > 0 || inddes >= 0)) {
+    if (ibis::gVerbose > 6 && (ind.size() > 0 || inddes != Z_NULL)) {
         ibis::util::logger lg;
         print(lg());
     }
@@ -51,7 +51,7 @@ ibis::roster::roster(const ibis::column* c,
                      ibis::fileManager::storage* st,
                      uint32_t offset)
     : col(c), ind(st, offset, offset+sizeof(uint32_t)*c->partition()->nRows()),
-      inddes(-1) {
+      inddes(Z_NULL) {
     if (ibis::gVerbose > 6) {
         ibis::util::logger lg;
         print(lg());
@@ -99,11 +99,11 @@ int ibis::roster::write(const char* df) const {
         fnm[ierr-2] != 'n' || fnm[ierr-1] != 'd')
         fnm += ".ind";
 
-    int fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdes < 0) {
+    int fdes_lock= open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+    if (fdes_lock < 0) {
         ibis::fileManager::instance().flushFile(fnm.c_str());
-        fdes = UnixOpen(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
-        if (fdes < 0) {
+        fdes_lock = open(fnm.c_str(), OPEN_WRITENEW, OPEN_FILEMODE);
+        if (fdes_lock < 0) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open \"" << fnm
                 << "\" for write ... "
@@ -111,8 +111,9 @@ int ibis::roster::write(const char* df) const {
             return -2;
         }
     }
+    gzFile fdes = gzdopen(fdes_lock, "wb");
 #if defined(HAVE_FLOCK)
-    ibis::util::flock flck(fdes);
+    ibis::util::flock flck(fdes_lock);
     if (flck.isLocked() == false) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to acquire an exclusive lock "
@@ -122,9 +123,9 @@ int ibis::roster::write(const char* df) const {
     }
 #endif
 
-    ierr = UnixWrite(fdes, reinterpret_cast<const void*>(ind.begin()),
+    uint32_t err = UnixWrite(fdes, reinterpret_cast<const void*>(ind.begin()),
                      sizeof(uint32_t)*ind.size());
-    LOGGER(ierr != sizeof(uint32_t)*ind.size() && ibis::gVerbose > 0)
+    LOGGER(err != sizeof(uint32_t)*ind.size() && ibis::gVerbose > 0)
         << "Warning -- " << evt << " expected to write "
         << sizeof(uint32_t)*ind.size()
         << " bytes but only wrote " << ierr;
@@ -180,10 +181,10 @@ int ibis::roster::writeSorted(const char *df) const {
     else {
         evt = "roster::writeSorted";
     }
-    FILE *fptr = fopen(fnm.c_str(), "wb");
-    if (fptr == 0) {
+    gzFile fptr = gzopen(fnm.c_str(), "wb");
+    if (fptr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
-            << "Warning -- roster::writeSorted failed to fopen " << fnm
+            << "Warning -- roster::writeSorted failed to gzopen " << fnm
             << " for writing";
         return -3;
     }
@@ -196,18 +197,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(unsigned char), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(unsigned char));
             }
         }
         else {
             unsigned char tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
-            if (fpts != 0) {
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
+            if (fpts != Z_NULL) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER(ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -229,18 +230,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(char), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(char));
             }
         }
         else {
             char tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER (ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -262,18 +263,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(uint16_t), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(uint16_t));
             }
         }
         else {
             uint16_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER(ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -295,18 +296,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(int16_t), 1, fptr);
+                gzwrite(fptr,&(arr[ind[i]]), sizeof(int16_t));
             }
         }
         else {
             int16_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER (ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -328,18 +329,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(uint32_t), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(uint32_t));
             }
         }
         else {
             uint32_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER(ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -361,18 +362,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(int32_t), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(int32_t));
             }
         }
         else {
             int32_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER (ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -394,18 +395,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(uint64_t), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(uint64_t));
             }
         }
         else {
             uint64_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER(ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -427,18 +428,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(int64_t), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(int64_t));
             }
         }
         else {
             int64_t tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(tmp), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(tmp)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(tmp));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(tmp), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(tmp));
                         LOGGER (ierr < sizeof(tmp) && ibis::gVerbose >= 0)
                             << "Warning -- " << evt
                             << " failed to write value # " << i << " (" << tmp
@@ -460,18 +461,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(float), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(float));
             }
         }
         else {
             float tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(float)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(float), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(float)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(float));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(float), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(float));
                         LOGGER(ierr < sizeof(float) && ibis::gVerbose > 0)
                             << "Warning -- " << evt
                             << "failed to write value # " << i
@@ -493,18 +494,18 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = ibis::fileManager::instance().getFile(fnm.c_str(), arr);
         if (ierr == 0) {
             for (uint32_t i = 0; i < ind.size(); ++ i) {
-                fwrite(&(arr[ind[i]]), sizeof(double), 1, fptr);
+                gzwrite(fptr, &(arr[ind[i]]), sizeof(double));
             }
         }
         else {
             double tmp;
-            FILE *fpts = fopen(fnm.c_str(), "rb");
+            gzFile fpts = gzopen(fnm.c_str(), "rb");
             if (fpts != 0) {
                 for (uint32_t i = 0; i < ind.size(); ++ i) {
-                    ierr = fseek(fpts, sizeof(double)*ind[i], SEEK_SET);
-                    ierr = fread(&tmp, sizeof(double), 1, fpts);
+                    ierr = gzseek(fpts, sizeof(double)*ind[i], SEEK_SET);
+                    ierr = gzread(fpts, &tmp, sizeof(double));
                     if (ierr > 0) {
-                        ierr = fwrite(&tmp, sizeof(double), 1, fptr);
+                        ierr = gzwrite(fptr, &tmp, sizeof(double));
                         LOGGER(ierr < sizeof(double) && ibis::gVerbose > 0)
                             << "Warning -- " << evt
                             << "failed to write value # " << i << " ("
@@ -529,7 +530,7 @@ int ibis::roster::writeSorted(const char *df) const {
         ierr = 0;
         break;}
     } // switch (col->type())
-    fclose(fptr); // close the .srt file
+    gzclose(fptr); // close the .srt file
 
     if (ierr == 0) {
         return 0;
@@ -543,10 +544,10 @@ int ibis::roster::writeSorted(const char *df) const {
 } // ibis::roster::writeSorted
 
 /// Write the content of ind to a file already open.
-int ibis::roster::write(FILE* fptr) const {
+int ibis::roster::write(gzFile fptr) const {
     if (ind.empty()) return -1;
-    uint32_t ierr = fwrite(reinterpret_cast<const void*>(ind.begin()),
-                           sizeof(uint32_t), ind.size(), fptr);
+    uint32_t ierr = gzwrite(fptr, reinterpret_cast<const void*>(ind.begin()),
+                           sizeof(uint32_t) * ind.size());
     if (ierr != ind.size()) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- roster::write expected to write " << ind.size()
@@ -598,8 +599,8 @@ int ibis::roster::read(const char* idxf) {
             << "roster -- read the content of " << fnm << " into memory";
     }
     else {
-        inddes = UnixOpen(fnm.c_str(), OPEN_READONLY);
-        if (inddes < 0) {
+        inddes = UnixOpen(fnm.c_str(), "rb");
+        if (inddes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0) 
                 << "Warning -- roster::read failed to open " << fnm;
         }
@@ -988,7 +989,7 @@ void ibis::roster::oocSort(const char *fin) {
     if (ibis::util::getFileSize(nind.c_str()) ==
         (off_t)(sizeof(uint32_t) * nrows)) {
         // open the ind file in read only mode for future operaions.
-        inddes = UnixOpen(nind.c_str(), OPEN_READONLY);
+        inddes = UnixOpen(nind.c_str(), "rb");
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(inddes, _O_BINARY);
 #endif
@@ -1365,7 +1366,7 @@ void ibis::roster::oocSort(const char *fin) {
     }
 
     // open the ind file in read only mode for future operaions.
-    inddes = UnixOpen(nind.c_str(), OPEN_READONLY);
+    inddes = UnixOpen(nind.c_str(), "rb");
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(inddes, _O_BINARY);
 #endif
@@ -1379,8 +1380,8 @@ long ibis::roster::oocSortBlocks(const char *src, const char *dest,
                                  const char *ind, const uint32_t mblock,
                                  array_t<T>& dbuf1, array_t<T>& dbuf2,
                                  array_t<uint32_t>& ibuf) const {
-    int fdsrc = UnixOpen(src, OPEN_READONLY);
-    if (fdsrc < 0) {
+    gzFile fdsrc = UnixOpen(src, "rb");
+    if (fdsrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocSortBlocks failed to open " << src
             << " for reading";
@@ -1390,8 +1391,8 @@ long ibis::roster::oocSortBlocks(const char *src, const char *dest,
     (void)_setmode(fdsrc, _O_BINARY);
 #endif
     IBIS_BLOCK_GUARD(UnixClose, fdsrc);
-    int fddes = UnixOpen(dest, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fddes < 0) {
+    gzFile fddes = UnixOpen(dest, "wb");
+    if (fddes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocSortBlocks failed to open " << dest
             << " for writing";
@@ -1401,8 +1402,8 @@ long ibis::roster::oocSortBlocks(const char *src, const char *dest,
     (void)_setmode(fddes, _O_BINARY);
 #endif
     IBIS_BLOCK_GUARD(UnixClose, fddes);
-    int fdind = UnixOpen(ind, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdind < 0) {
+    gzFile fdind = UnixOpen(ind, "wb");
+    if (fdind == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocSortBlocks failed to open " << ind
             << " for writing";
@@ -1475,7 +1476,7 @@ long ibis::roster::oocSortBlocks(const char *src, const char *dest,
     _commit(fddes);
     _commit(fdind);
 #endif
-    if (ierr < 0) { // remove the output files
+    if (ierr == Z_NULL) { // remove the output files
         remove(ind);
         remove(dest);
         LOGGER(ibis::gVerbose > 0)
@@ -1512,8 +1513,8 @@ long ibis::roster::oocMergeBlocks(const char *dsrc, const char *dout,
                                   array_t<T>& dbuf2,
                                   array_t<uint32_t>& ibuf1,
                                   array_t<uint32_t>& ibuf2) const {
-    const int fdsrc = UnixOpen(dsrc, OPEN_READONLY);
-    if (fdsrc < 0) {
+    const gzFile fdsrc = UnixOpen(dsrc, "rb");
+    if (fdsrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocMergeBlocks failed to open " << dsrc
             << " for reading";
@@ -1523,8 +1524,8 @@ long ibis::roster::oocMergeBlocks(const char *dsrc, const char *dout,
     (void)_setmode(fdsrc, _O_BINARY);
 #endif
     IBIS_BLOCK_GUARD(UnixClose, fdsrc);
-    const int fisrc = UnixOpen(isrc, OPEN_READONLY);
-    if (fisrc < 0) {
+    const gzFile fisrc = UnixOpen(isrc, "rb");
+    if (fisrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocMergeBlocks failed to open " << isrc
             << " for reading";
@@ -1534,8 +1535,8 @@ long ibis::roster::oocMergeBlocks(const char *dsrc, const char *dout,
     (void)_setmode(fisrc, _O_BINARY);
 #endif
     IBIS_BLOCK_GUARD(UnixClose, fisrc);
-    const int fdout = UnixOpen(dout, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdout < 0) {
+    const gzFile fdout = UnixOpen(dout, "wb");
+    if (fdout == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocMergeBlocks failed to open " << dout
             << " for writing";
@@ -1545,8 +1546,8 @@ long ibis::roster::oocMergeBlocks(const char *dsrc, const char *dout,
     (void)_setmode(fdout, _O_BINARY);
 #endif
     IBIS_BLOCK_GUARD(UnixClose, fdout);
-    const int fiout = UnixOpen(iout, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fiout < 0) {
+    const gzFile fiout = UnixOpen(iout, "wb");
+    if (fiout == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- oocMergeBlocks failed to open " << iout
             << " for writing";
@@ -1919,16 +1920,16 @@ template <typename T>
 long ibis::roster::mergeBlock2(const char *dsrc, const char *dout,
                                const uint32_t segment, array_t<T>& buf1,
                                array_t<T>& buf2, array_t<T>& buf3) {
-    const int fdsrc = UnixOpen(dsrc, OPEN_READONLY);
-    if (fdsrc < 0) {
+    const gzFile fdsrc = UnixOpen(dsrc, "rb");
+    if (fdsrc == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- roster::mergeBlock2 failed to open " << dsrc
             << " for reading";
         return -1;
     }
     IBIS_BLOCK_GUARD(UnixClose, fdsrc);
-    const int fdout = UnixOpen(dout, OPEN_WRITENEW, OPEN_FILEMODE);
-    if (fdout < 0) {
+    const gzFile fdout = UnixOpen(dout, "wb");
+    if (fdout == Z_NULL ) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- roster::mergeBlock2 failed to open " << dout
             << " for writing";
@@ -2100,7 +2101,7 @@ long ibis::roster::mergeBlock2(const char *dsrc, const char *dout,
 /// Print a terse message about the roster.   If the roster list is not
 /// initialized correctly, it prints a warning message.
 void ibis::roster::print(std::ostream& out) const {
-    if (col != 0 && (ind.size() == col->partition()->nRows() || inddes >= 0))
+    if (col != 0 && (ind.size() == col->partition()->nRows() || inddes != Z_NULL))
         out << "a roster list for " << col->partition()->name() << '.'
             << col->name() << " with " << ind.size() << " row"
             << (ind.size() > 1 ? "s" : "");
@@ -2109,7 +2110,7 @@ void ibis::roster::print(std::ostream& out) const {
 } // ibis::roster::print
 
 uint32_t ibis::roster::size() const {
-    return ((ind.size() == col->partition()->nRows() || inddes >= 0) ?
+    return ((ind.size() == col->partition()->nRows() || inddes != Z_NULL) ?
             col->partition()->nRows() : 0);
 } // ibis::roster::size
 
@@ -2468,8 +2469,8 @@ ibis::roster::oocSearch(const ibis::array_t<T>& vals,
         << " to locate " << vals.size() << " value"
         << (vals.size()>1?"s":"");
 
-    int srtdes = UnixOpen(fname.c_str(), OPEN_READONLY);
-    if (srtdes < 0) {
+    gzFile srtdes = UnixOpen(fname.c_str(), "rb");
+    if (srtdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open the file "
             << fname;
@@ -2523,11 +2524,11 @@ ibis::roster::oocSearch(const ibis::array_t<T>& vals,
         return (pos.size() > 0);
     }
 
-    if (inddes < 0) {
+    if (inddes == Z_NULL) {
         fname.erase(len);
         fname += ".ind";
-        inddes = UnixOpen(fname.c_str(), OPEN_READONLY);
-        if (inddes < 0) {
+        inddes = UnixOpen(fname.c_str(), "rb");
+        if (inddes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open index file "
                 << fname;
@@ -2537,7 +2538,7 @@ ibis::roster::oocSearch(const ibis::array_t<T>& vals,
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(inddes, _O_BINARY);
 #endif
-    if (nbuf > 0 && inddes > 0) {
+    if (nbuf > 0 && inddes != Z_NULL) {
         // bulk read, also need to read ind array
         while (iv < nvals && ir < nrows) {
             ierr = UnixRead(srtdes, cbuf, ncbuf);
@@ -2798,8 +2799,8 @@ ibis::roster::oocSearch(const std::vector<T>& vals,
         << " to locate " << vals.size() << " value"
         << (vals.size()>1?"s":"");
 
-    int srtdes = UnixOpen(fname.c_str(), OPEN_READONLY);
-    if (srtdes < 0) {
+    gzFile srtdes = UnixOpen(fname.c_str(), "rb");
+    if (srtdes == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open the file "
             << fname;
@@ -2853,11 +2854,11 @@ ibis::roster::oocSearch(const std::vector<T>& vals,
         return (pos.size() > 0);
     }
 
-    if (inddes < 0) {
+    if (inddes == Z_NULL) {
         fname.erase(len);
         fname += ".ind";
-        inddes = UnixOpen(fname.c_str(), OPEN_READONLY);
-        if (inddes < 0) {
+        inddes = UnixOpen(fname.c_str(), "rb");
+        if (inddes == Z_NULL) {
             LOGGER(ibis::gVerbose > 1)
                 << "Warning -- " << evt << " failed to open index file "
                 << fname;
@@ -2867,7 +2868,7 @@ ibis::roster::oocSearch(const std::vector<T>& vals,
 #if defined(_WIN32) && defined(_MSC_VER)
     (void)_setmode(inddes, _O_BINARY);
 #endif
-    if (nbuf > 0 && inddes > 0) {
+    if (nbuf > 0 && inddes != Z_NULL) {
         // bulk read, also need to read ind array
         while (iv < nvals && ir < nrows) {
             ierr = UnixRead(srtdes, cbuf, ncbuf);
@@ -2975,7 +2976,7 @@ template <typename T> int
 ibis::roster::locate(const ibis::array_t<T>& vals,
                      std::vector<uint32_t>& positions) const {
     int ierr = 0;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }
@@ -3013,7 +3014,7 @@ template <> int
 ibis::roster::locate(const ibis::array_t<double>& vals,
                      ibis::bitvector& positions) const {
     int ierr = 0;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }
@@ -3112,7 +3113,7 @@ template <typename T> int
 ibis::roster::locate(const ibis::array_t<T>& vals,
                      ibis::bitvector& positions) const {
     int ierr = 0;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }
@@ -3179,7 +3180,7 @@ template <typename T> int
 ibis::roster::locate(const std::vector<T>& vals,
                      std::vector<uint32_t>& positions) const {
     int ierr = 0;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }
@@ -3223,7 +3224,7 @@ ibis::roster::locate(const std::vector<T>& vals,
     int ierr = 0;
     if (vals.empty())
         return ierr;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }
@@ -3308,7 +3309,7 @@ template <> int
 ibis::roster::locate(const std::vector<double>& vals,
                      ibis::bitvector& positions) const {
     int ierr = 0;
-    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes < 0)) {
+    if (col == 0 || (ind.size() != col->partition()->nRows() && inddes == Z_NULL)) {
         ierr = -2;
         return ierr;
     }

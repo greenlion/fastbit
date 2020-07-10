@@ -67,6 +67,7 @@ public:
 
     virtual ~column();
     column(const column& rhs);
+    column(const part* tbl, gzFile file);
     column(const part* tbl, FILE* file);
     column(const part* tbl, ibis::TYPE_T t, const char* name,
 	   const char* desc="", double low=DBL_MAX, double high=-DBL_MAX);
@@ -124,7 +125,7 @@ public:
     virtual int  attachIndex(double *, uint64_t, int64_t *, uint64_t,
                              void *, FastBitReadBitmaps) const;
     virtual int  attachIndex(double *, uint64_t, int64_t *, uint64_t,
-                             uint32_t *, uint64_t) const;
+                             uint32_t *, int64_t) const;
     virtual void loadIndex(const char* iopt=0, int ropt=0) const throw ();
     virtual void unloadIndex() const;
     virtual long indexSize() const;
@@ -432,7 +433,7 @@ protected:
     void logError(const char* event, const char* fmt, ...) const;
     /// Convert strings in the opened file to a list of integers with the
     /// aid of a dictionary.
-    long string2int(int fptr, dictionary& dic, uint32_t nbuf, char* buf,
+    long string2int(gzFile fptr, dictionary& dic, uint32_t nbuf, char* buf,
 		    array_t<uint32_t>& out) const;
     /// Read the data values and compute the minimum value.
     double computeMin() const;
@@ -500,10 +501,10 @@ protected:
 
     /// Find the smallest value >= tgt.
     template <typename T> uint32_t
-	findLower(int fdes, const uint32_t nr, const T tgt) const;
+	findLower(gzFile fdes, const uint32_t nr, const T tgt) const;
     /// Find the smallest value > tgt.
     template <typename T> uint32_t
-	findUpper(int fdes, const uint32_t nr, const T tgt) const;
+	findUpper(gzFile fdes, const uint32_t nr, const T tgt) const;
 
     template <typename T>
 	long selectValuesT(const char*, const bitvector&, array_t<T>&) const;

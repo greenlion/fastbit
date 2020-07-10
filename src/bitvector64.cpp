@@ -1352,8 +1352,8 @@ void ibis::bitvector64::read(const char * fn) {
 
 // // write bitvector64 to file (contents of vector is not changed)
 void ibis::bitvector64::write(const char * fn) const {
-    FILE *out = fopen(fn, "wb");
-    if (out == 0) {
+    gzFile out = gzopen(fn, "wb");
+    if (out == Z_NULL) {
         ibis::util::logMessage
             ("Error", "bitvector64::write() Failed to "
              "open \"%s\" to write the bit vector ... %s",
@@ -1373,40 +1373,25 @@ void ibis::bitvector64::write(const char * fn) const {
     }
 #endif
     word_t n = m_vec.size();
-    word_t j = fwrite((const void*)m_vec.begin(), sizeof(word_t),
-                      n, out);
+    word_t j = gzwrite(out, (const void*)m_vec.begin(), sizeof(word_t) * n);
     if (j != n) {
         ibis::util::logMessage("Error", "bitvector64::write() only "
                                "wrote %lu out of %lu words to %s",
                                static_cast<long unsigned>(j),
                                static_cast<long unsigned>(n), fn);
-        fclose(out);
+        gzclose(out);
         throw "bitvector64::write failed to write all bytes" IBIS_FILE_LINE;
     }
     if (active.nbits > 0) {
-        fwrite((const void*)&(active.val), sizeof(word_t), 1, out);
+        gzwrite(out,(const void*)&(active.val), sizeof(word_t));
     }
-    fwrite((const void*)&(active.nbits), sizeof(word_t), 1, out);
+    gzwrite(out,(const void*)&(active.nbits), sizeof(word_t));
 
-    //     if (0 == fwrite((const void*)&nset, sizeof(word_t), 1, out)) {
-    //  ibis::util::logMessage("Error", "bitvector64::write() fail to "
-    //                         "write nset to %s", fn);
-    //  fclose(out);
-    //  throw "bitvector64::write failed to write the size" IBIS_FILE_LINE;
-    //     }
-
-    //     if (0 == fwrite((const void*)&nbits, sizeof(word_t), 1, out)) {
-    //  ibis::util::logMessage("Error", "bitvector64::write() fail to "
-    //                         "write nbits to %s", fn);
-    //  fclose(out);
-    //  throw "bitvector64::write failed to write the cnt" IBIS_FILE_LINE;
-    //     }
-
-    fclose(out);
+    gzclose(out);
 } // ibis::bitvector64::write
 
-void ibis::bitvector64::write(FILE* out) const {
-    if (out == 0) return;
+void ibis::bitvector64::write(gzFile out) const {
+    if (out == Z_NULL) return;
 
 #if defined(WAH_CHECK_SIZE)
     word_t nb = do_cnt();
@@ -1418,8 +1403,7 @@ void ibis::bitvector64::write(FILE* out) const {
     }
 #endif
     word_t n = m_vec.size();
-    word_t j = fwrite((const void*)m_vec.begin(), sizeof(word_t),
-                      n, out);
+    word_t j = gzwrite(out, (const void*)m_vec.begin(), sizeof(word_t) * n);
     if (j != n) {
         ibis::util::logMessage("Error", "bitvector64::write() only "
                                "wrote %lu out of %lu words",
@@ -1428,11 +1412,9 @@ void ibis::bitvector64::write(FILE* out) const {
         throw "bitvector64::write failed to write all bytes" IBIS_FILE_LINE;
     }
     if (active.nbits > 0) {
-        fwrite((const void*)&(active.val), sizeof(word_t), 1, out);
+        gzwrite(out, (const void*)&(active.val), sizeof(word_t));
     }
-    fwrite((const void*)&(active.nbits), sizeof(word_t), 1, out);
-    //     fwrite((const void*)&nset, sizeof(word_t), 1, out);
-    //     fwrite((const void*)&nbits, sizeof(word_t), 1, out);
+    gzwrite(out, (const void*)&(active.nbits), sizeof(word_t));
 } // ibis::bitvector64::write
 
 void ibis::bitvector64::write(array_t<ibis::bitvector64::word_t>& arr) const {

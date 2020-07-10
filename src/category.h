@@ -27,7 +27,7 @@
 class ibis::text : public ibis::column {
 public:
     virtual ~text() {unloadIndex();};
-    text(const part* tbl, FILE* file);
+    text(const part* tbl, gzFile file);
     text(const part* tbl, const char* name, ibis::TYPE_T t=ibis::TEXT);
     text(const ibis::column& col); // copy from column
 
@@ -98,7 +98,7 @@ protected:
 
     void startPositions(const char *dir, char *buf, uint32_t nbuf) const;
     int  readString(uint32_t i, std::string &val) const;
-    int  readString(std::string&, int, long, long, char*, uint32_t,
+    int  readString(std::string&, gzFile, long, long, char*, uint32_t,
 		    uint32_t&, off_t&) const;
     int  readStrings1(const ibis::bitvector&, std::vector<std::string>&) const;
     int  readStrings2(const ibis::bitvector&, std::vector<std::string>&) const;
@@ -120,7 +120,7 @@ private:
 class ibis::category : public ibis::text {
 public:
     virtual ~category();
-    category(const part* tbl, FILE* file);
+    category(const part* tbl, gzFile file);
     category(const part* tbl, const char* name);
     category(const ibis::column& col); // copy from column
     // a special construct for meta-tag attributes

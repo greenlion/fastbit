@@ -63,13 +63,6 @@ ibis::column::column(const ibis::part* tbl, ibis::TYPE_T t,
     }
 } // ibis::column::column
 
-/// Reconstitute a column from the content of a file.
-/// Read the basic information about a column from file.
-///
-///@note
-/// Assume the calling program has read "Begin Property/Column" already.
-///
-///@note
 /// A well-formed column must have a valid name, i.e., ! m_name.empty().
 ibis::column::column(const part* tbl, FILE* file)
     : thePart(tbl), m_type(UINT), m_sorted(false), lower(DBL_MAX),
@@ -94,6 +87,245 @@ ibis::column::column(const part* tbl, FILE* file)
     // assume the calling program has read "Begin Property/Column" already
     do {
         s1 = fgets(buf, MAX_LINE, file);
+        if (s1 == 0) {
+            ibis::util::logMessage("Warning", "column::ctor reached "
+                                   "end-of-file while reading a column");
+            return;
+        }
+        if (std::strlen(buf) + 1 >= MAX_LINE) {
+            ibis::util::logMessage("Warning", "column::ctor may "
+                                   "have encountered a line that has more "
+                                   "than %d characters", MAX_LINE);
+        }
+
+        s1 = strchr(buf, '=');
+        if (s1!=0 && s1[1]!=static_cast<char>(0)) ++s1;
+        else s1 = 0;
+
+        if (buf[0] == '#') {
+            // skip the comment line
+        }
+        else if (strnicmp(buf, "name", 4) == 0 ||
+                 strnicmp(buf, "Property_name", 13) == 0) {
+            s2 = ibis::util::getString(s1);
+            m_name = s2;
+            delete [] s2;
+        }
+        else if (strnicmp(buf, "description", 11) == 0 ||
+                 strnicmp(buf, "Property_description", 20) == 0) {
+            s2 = ibis::util::getString(s1);
+            m_desc = s2;
+            delete [] s2;
+        }
+        else if (strnicmp(buf, "minimum", 7) == 0) {
+            s1 += strspn(s1, " \t=\'\"");
+            lower = strtod(s1, 0);
+        }
+        else if (strnicmp(buf, "maximum", 7) == 0) {
+            s1 += strspn(s1, " \t=\'\"");
+            upper = strtod(s1, 0);
+        }
+        else if (strnicmp(buf, "Bins:", 5) == 0) {
+            s1 = buf + 5;
+            s1 += strspn(s1, " \t");
+            s2 = s1 + std::strlen(s1) - 1;
+            while (s2>=s1 && isspace(*s2)) {
+                *s2 = static_cast<char>(0);
+                --s2;
+            }
+#if defined(INDEX_SPEC_TO_LOWER)
+            s2 = s1 + std::strlen(s1) - 1;
+            while (s2 >= s1) {
+                *s2 = tolower(*s2);
+                -- s2;
+            }
+#endif
+            m_bins = s1;
+        }
+        else if (strnicmp(buf, "Index", 5) == 0) {
+            s1 = ibis::util::getString(s1);
+#if defined(INDEX_SPEC_TO_LOWER)
+            s2 = s1 + std::strlen(s1) - 1;
+            while (s2 >= s1) {
+                *s2 = tolower(*s2);
+                -- s2;
+            }
+#endif
+            m_bins = s1;
+            delete [] s1;
+        }
+        else if (strnicmp(buf, "sorted", 6) == 0 && s1 != 0 && *s1 != 0) {
+            while (s1 != 0 && *s1 != 0 && isspace(*s1))
+                ++ s1;
+            if (s1 != 0 && *s1 != 0)
+                m_sorted = ibis::resource::isStringTrue(s1);
+        }
+        else if (strnicmp(buf, "Property_data_type", 18) == 0 ||
+                 strnicmp(buf, "data_type", 9) == 0 ||
+                 strnicmp(buf, "type", 4) == 0) {
+            s1 += strspn(s1, " \t=\'\"");
+
+            switch (*s1) {
+            case 'i':
+            case 'I': { // can only be INT
+                m_type = ibis::INT;
+                break;}
+            case 'u':
+            case 'U': { // likely unsigned type, but maybe UNKNOWN or UDT
+                m_type = ibis::UNKNOWN_TYPE;
+                if (s1[1] == 's' || s1[1] == 'S') { // USHORT
+                    m_type = ibis::USHORT;
+                }
+                else if (s1[1] == 'b' || s1[1] == 'B' ||
+                         s1[1] == 'c' || s1[1] == 'C') { // UBYTE
+                    m_type = ibis::UBYTE;
+                }
+                else if (s1[1] == 'i' || s1[1] == 'I') { // UINT
+                    m_type = ibis::UINT;
+                }
+                else if (s1[1] == 'l' || s1[1] == 'L') { // ULONG
+                    m_type = ibis::ULONG;
+                }
+                else if (s1[1] == 'd' || s1[1] == 'd') { // UDT
+                    m_type = ibis::UDT;
+                }
+                else if (strnicmp(s1, "unsigned", 8) == 0) { // unsigned xx
+                    s1 += 8; // skip "unsigned"
+                    s1 += strspn(s1, " \t=\'\""); // skip space
+                    if (*s1 == 's' || *s1 == 'S') { // USHORT
+                        m_type = ibis::USHORT;
+                    }
+                    else if (*s1 == 'b' || *s1 == 'B' ||
+                             *s1 == 'c' || *s1 == 'C') { // UBYTE
+                        m_type = ibis::UBYTE;
+                    }
+                    else if (*s1 == 0 || *s1 == 'i' || *s1 == 'I') { // UINT
+                        m_type = ibis::UINT;
+                    }
+                    else if (*s1 == 'l' || *s1 == 'L') { // ULONG
+                        m_type = ibis::ULONG;
+                    }
+                }
+                break;}
+            case 'r':
+            case 'R': { // FLOAT
+                m_type = ibis::FLOAT;
+                break;}
+            case 'f':
+            case 'F': {// FLOAT
+                m_type = ibis::FLOAT;
+                break;}
+            case 'd':
+            case 'D': { // DOUBLE
+                m_type = ibis::DOUBLE;
+                break;}
+            case 'c':
+            case 'C':
+            case 'k':
+            case 'K': { // KEY
+                m_type = ibis::CATEGORY;
+                break;}
+            case 's':
+            case 'S': { // default to string, but could be short
+                m_type = ibis::TEXT;
+                if (s1[1] == 'h' || s1[1] == 'H')
+                    m_type = ibis::SHORT;
+                break;}
+            case 't':
+            case 'T': {
+                m_type = ibis::TEXT;
+                break;}
+            case 'a':
+            case 'A': { // UBYTE
+                m_type = ibis::UBYTE;
+                break;}
+            case 'b':
+            case 'B': { // BYTE/BIT/BLOB
+                if (s1[1] == 'l' || s1[1] == 'L')
+                    m_type = ibis::BLOB;
+                else if (s1[1] == 'i' || s1[1] == 'I')
+                    m_type = ibis::BIT;
+                else
+                    m_type = ibis::BYTE;
+                break;}
+            case 'g':
+            case 'G': { // USHORT
+                m_type = ibis::USHORT;
+                break;}
+            case 'H':
+            case 'h': { // short, half word
+                m_type = ibis::SHORT;
+                break;}
+            case 'l':
+            case 'L': { // LONG (int64_t)
+                m_type = ibis::LONG;
+                break;}
+            case 'v':
+            case 'V': { // unsigned long (uint64_t)
+                m_type = ibis::ULONG;
+                break;}
+            case 'q':
+            case 'Q': { // BLOB
+                m_type = ibis::BLOB;
+                break;}
+            default: {
+                LOGGER(ibis::gVerbose > 1)
+                    << "Warning -- column::ctor encountered "
+                    "unknown data type \"" << s1 << "\"";
+                badType = true;
+                break;}
+            }
+        }
+        else if (strnicmp(buf, "End", 3) && ibis::gVerbose > 4){
+            ibis::util::logMessage("column::column",
+                                   "skipping line:\n%s", buf);
+        }
+    } while (strnicmp(buf, "End", 3));
+
+    if (m_name.empty() || badType) {
+        ibis::util::logMessage("Warning",
+                               "column specification does not have a "
+                               "valid name or type");
+        m_name.erase(); // make sure the name is empty
+    }
+    if (ibis::gVerbose > 5 && !m_name.empty()) {
+        ibis::util::logger lg;
+        lg() << "read info about column " << fullname() << " @ " << this
+             << " (" << ibis::TYPESTRING[(int)m_type] << ')';
+    }
+} // ibis::column::column
+
+/// Reconstitute a column from the content of a file.
+/// Read the basic information about a column from file.
+///
+///@note
+/// Assume the calling program has read "Begin Property/Column" already.
+///
+///@note
+/// A well-formed column must have a valid name, i.e., ! m_name.empty().
+ibis::column::column(const part* tbl, gzFile file)
+    : thePart(tbl), m_type(UINT), m_sorted(false), lower(DBL_MAX),
+      upper(-DBL_MAX), m_utscribe(0), dataflag(0), idx(0), idxcnt() {
+    char buf[MAX_LINE];
+    char *s1;
+    char *s2;
+
+    if (0 != pthread_rwlock_init(&rwlock, 0)) {
+        throw "column::ctor failed to initialize the rwlock" IBIS_FILE_LINE;
+    }
+    if (0 != pthread_mutex_init
+        (&mutex, static_cast<const pthread_mutexattr_t *>(0))) {
+        throw "column::ctor failed to initialize the mutex" IBIS_FILE_LINE;
+    }
+    if (thePart == 0) {
+        (void) ibis::fileManager::instance();
+    }
+
+    bool badType = false;
+    // read the column entry of the metadata file
+    // assume the calling program has read "Begin Property/Column" already
+    do {
+        s1 = gzgets(file, buf, MAX_LINE);
         if (s1 == 0) {
             ibis::util::logMessage("Warning", "column::ctor reached "
                                    "end-of-file while reading a column");
@@ -4740,11 +4972,11 @@ long ibis::column::selectValuesT(const char* dfn,
             << " as " << typeid(T).name();
     }
     else { // has to use UnixRead family of functions
-        int fdes = UnixOpen(dfn, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(dfn, "rb");
+        if (fdes == Z_NULL) {
             logWarning("selectValuesT", "failed to open file %s, ierr=%d",
                        dfn, fdes);
-            return fdes;
+            return -1;
         }
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
@@ -4943,12 +5175,12 @@ long ibis::column::selectValuesT(const char *dfn,
             << " as " << typeid(T).name();
     }
     else { // has to use UnixRead family of functions
-        int fdes = UnixOpen(dfn, OPEN_READONLY);
-        if (fdes < 0) {
+        gzFile fdes = UnixOpen(dfn, "rb");
+        if (fdes == Z_NULL) {
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " failed to open file "
                 << dfn << ", ierr=" << fdes;
-            return fdes;
+            return -1;
         }
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(fdes, _O_BINARY);
@@ -5685,7 +5917,7 @@ int ibis::column::attachIndex(double *keys, uint64_t nkeys,
 
 int ibis::column::attachIndex(double *keys, uint64_t nkeys,
                               int64_t *offsets, uint64_t noffsets,
-                              uint32_t *bms, uint64_t nbms) const {
+                              uint32_t *bms, int64_t nbms) const {
     if (keys == 0 || nkeys == 0 || offsets == 0 || noffsets == 0 ||
         bms == 0 || nbms == 0 || offsets[noffsets-1] > nbms)
         return -1;
@@ -7096,8 +7328,8 @@ long ibis::column::append(const char* dt, const char* df,
         << to << "\", nold=" << nold << ", nnew=" << nnew;
 
     // open destination file, position the file pointer
-    int dest = UnixOpen(to.c_str(), OPEN_WRITEADD, OPEN_FILEMODE);
-    if (dest < 0) {
+    gzFile dest = UnixOpen(to.c_str(), "wb+");
+    if (dest == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt <<  " failed to open file \"" << to
             << "\" for append ... "
@@ -7131,8 +7363,8 @@ long ibis::column::append(const char* dt, const char* df,
     }
 
     ret = 0;    // to count the number of bytes written
-    int src = UnixOpen(from.c_str(), OPEN_READONLY); // open the files
-    if (src >= 0) { // open the source file, copy it
+    gzFile src = UnixOpen(from.c_str(), "rb"); // open the files
+    if (src != Z_NULL ) { // open the source file, copy it
 #if defined(_WIN32) && defined(_MSC_VER)
         (void)_setmode(src, _O_BINARY);
 #endif
@@ -7403,7 +7635,7 @@ long ibis::column::append(const char* dt, const char* df,
 /// - return a positive value if more bytes remain in the file.
 /// - return a negative value if an error is encountered during the read
 ///   operation.
-long ibis::column::string2int(int fptr, dictionary& dic,
+long ibis::column::string2int(gzFile fptr, dictionary& dic,
                               uint32_t nbuf, char* buf,
                               array_t<uint32_t>& out) const {
     out.clear(); // clear the current integer list
@@ -7543,8 +7775,8 @@ long ibis::column::appendValues(const array_t<T>& vals,
     std::string fn = thePart->currentDataDir();
     fn += FASTBIT_DIRSEP;
     fn += m_name;
-    int curr = UnixOpen(fn.c_str(), OPEN_WRITEADD, OPEN_FILEMODE);
-    if (curr < 0) {
+    gzFile curr = UnixOpen(fn.c_str(), "wb+");
+    if (curr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file " << fn
             << " for writing -- " << (errno != 0 ? strerror(errno) : "??");
@@ -7620,8 +7852,8 @@ long ibis::column::appendStrings(const std::vector<std::string>& vals,
     std::string fn = thePart->currentDataDir();
     fn += FASTBIT_DIRSEP;
     fn += m_name;
-    int curr = UnixOpen(fn.c_str(), OPEN_APPENDONLY, OPEN_FILEMODE);
-    if (curr < 0) {
+    gzFile curr = UnixOpen(fn.c_str(), "a");
+    if (curr == Z_NULL) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open file " << fn
             << " for writing -- " << (errno != 0 ? strerror(errno) : "??");
@@ -7704,7 +7936,7 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
     sprintf(fn, "%s%c%s", dir, FASTBIT_DIRSEP, m_name.c_str());
     ibis::fileManager::instance().flushFile(fn);
 
-    FILE *fdat = fopen(fn, "ab");
+    gzFile fdat = gzopen(fn, "ab");
     if (fdat == 0) {
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << " failed to open \"" << fn
@@ -7714,7 +7946,7 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
     }
 
     // Part I: write the content of val
-    ninfile = ftell(fdat);
+    ninfile = gztell(fdat);
     if (m_type == ibis::UINT) {
         const unsigned int tmp = 4294967295U;
         const unsigned int elem = sizeof(unsigned int);
@@ -7725,21 +7957,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
                 // need to truncate the file
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULL values
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -7766,8 +7998,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt  << "expected to write " << nnew
             << " unsigned ints to \"" << fn << "\", but only wrote " << nact;
@@ -7782,21 +8014,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << "\" to have " << nold*elem << "bytes but it has "
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULLs
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -7823,8 +8055,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write " << nnew
             << " ints to \"" << fn << "\", but only wrote " << nact;
@@ -7840,21 +8072,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
                 // need to truncate the file
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULL values
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \"" << fn
-                        << "\", fwrite returned " << ierr;
+                        << "\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -7882,8 +8114,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write " << nnew
             << " unsigned ints to \"" << fn << "\", but only wrote " << nact;
@@ -7898,21 +8130,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << "\" to have " << nold*elem << " bytes but it has "
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULLs
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -7939,8 +8171,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write " << nnew
             << " short ints to \"" << fn << "\", but only wrote " << nact;
@@ -7956,21 +8188,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
                 // need to truncate the file
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULL values
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn <<"\", fwrite returned " << ierr;
+                        << fn <<"\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -7997,8 +8229,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write "<< nnew
             << " unsigned short ints to \"" << fn << "\", but only wrote "
@@ -8014,21 +8246,21 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 << "\" to have " << nold*elem << " bytes but it has "
                 << ninfile;
             if (ninfile > (nold+nnew)*elem) {
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
             else if (ninfile < nold*elem) {
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULLs
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -8055,8 +8287,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write " << nnew
             << " 8-bit ints to \"" << fn << "\", but only wrote " << nact;
@@ -8079,18 +8311,18 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 ninfile /= elem;
                 for (uint32_t i = ninfile; i < nold; ++ i) {
                     // write NULLs
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat, &tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
             else if (ninfile > (nold+nnew)*elem) {
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -8117,8 +8349,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             if (upper < iu) upper = iu;
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem * nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning -- " << evt << " expected to write " << nnew
             << " floats to \"" << fn << "\", but only wrote " << nact;
@@ -8141,18 +8373,18 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                 ninfile /= elem;
                 for (uint32_t i = nact; i < nold; ++ i) {
                     // write NULLs
-                    ierr = fwrite(&tmp, elem, 1, fdat);
-                    LOGGER(ierr == 0 && ibis::gVerbose >= 0)
+                    ierr = gzwrite(fdat,&tmp, elem);
+                    LOGGER(ierr <= 0 && ibis::gVerbose >= 0)
                         << "Warning -- " << evt << " failed to write to \""
-                        << fn << "\", fwrite returned " << ierr;
+                        << fn << "\", gzwrite returned " << ierr;
                 }
             }
             else if (ninfile > (nold+nnew)*elem) {
-                fclose(fdat);
+                gzclose(fdat);
                 ierr = truncate(fn, (nold+nnew)*elem);
-                fdat = fopen(fn, "ab");
+                fdat = gzopen(fn, "ab");
             }
-            ierr = fseek(fdat, nold*elem, SEEK_SET);
+            ierr = gzseek(fdat, nold*elem, SEEK_SET);
         }
         if (ninfile > nold)
             ninfile = nold;
@@ -8168,8 +8400,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             }
         }
 
-        nact = fwrite(arr, elem, nnew, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat, arr, elem *nnew);
+        gzclose(fdat);
         LOGGER(nact < nnew && ibis::gVerbose > 0)
             << "Warning " << evt << " expected to write " << nnew
             << " doubles to \"" << fn << "\", but only wrote " << nact;
@@ -8179,14 +8411,14 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
         // used here
         // use logError to terminate this function upon any error
         if (va2 == 0 || va1 == 0) {
-            fclose(fdat);
+            gzclose(fdat);
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt
                 << " needs both components of OID to be valid";
             return 0;
         }
         else if (ninfile != 8*nold) {
-            fclose(fdat);
+            gzclose(fdat);
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " expected OID file \"" << fn
                 << "\" to have " << 8*nold << " bytes, but it has "
@@ -8197,18 +8429,18 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
             const unsigned int *rn = reinterpret_cast<const unsigned*>(va1);
             const unsigned int *en = reinterpret_cast<const unsigned*>(va2);
             for (nact = 0; nact < nnew; ++ nact) {
-                ierr = fwrite(rn+nact, sizeof(unsigned), 1, fdat);
-                ierr += fwrite(en+nact, sizeof(unsigned), 1, fdat);
+                ierr = gzwrite(fdat, rn+nact, sizeof(unsigned));
+                ierr += gzwrite(fdat, en+nact, sizeof(unsigned));
                 if (ierr != 2) {
-                    fclose(fdat);
+                    gzclose(fdat);
                     LOGGER(ibis::gVerbose > 0)
                         << "Warning -- " << evt << " failed to write new OID # "
-                        << nact << "to \"" << fn << "\", fwrite returned "
+                        << nact << "to \"" << fn << "\", gzwrite returned "
                         << ierr;
                     break;
                 }
             }
-            fclose(fdat);
+            gzclose(fdat);
             LOGGER(nact != nnew && ibis::gVerbose > 0)
                 << "Warning -- " << evt << " expected nact(=" << nact
                 << ") to be the same as nnew(=" << nnew
@@ -8234,7 +8466,7 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
                     << " null string(s) (mask.size()=" << ninfile
                     << ", nold=" << nold << ")";
                 for (uint32_t i = ninfile; i < nold; i += 1024)
-                    fwrite(tmp, 1, (nold-i>1024)?1024:(nold-i), fdat);
+                    gzwrite(fdat, tmp, (nold-i>1024)?1024:(nold-i));
             }
         }
         else {
@@ -8244,8 +8476,8 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
         const char* arr = reinterpret_cast<const char*>(va1);
         const uint32_t nbytes =
             *reinterpret_cast<const uint32_t*>(va2);
-        nact = fwrite(arr, 1, nbytes, fdat);
-        fclose(fdat);
+        nact = gzwrite(fdat,arr, nbytes);
+        gzclose(fdat);
         if (nact != nbytes) { // no easy way to recover
             LOGGER(ibis::gVerbose > 0)
                 << "Warning -- " << evt << " expected to write " << nbytes
@@ -8260,7 +8492,7 @@ long ibis::column::writeData(const char *dir, uint32_t nold, uint32_t nnew,
         }
     }
     else {
-        fclose(fdat);
+        gzclose(fdat);
         LOGGER(ibis::gVerbose > 0)
             << "Warning -- " << evt << "does not yet supported type "
             << ibis::TYPESTRING[(int)(m_type)];
@@ -8338,7 +8570,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
             }
         }
         ibis::fileManager::instance().flushFile(fname.c_str());
-        FILE* fptr = fopen(fname.c_str(), "r+b");
+        gzFile fptr = gzopen(fname.c_str(), "r+b");
         if (fptr == 0) {
             if (ibis::gVerbose > -1)
                 logWarning("saveSelected", "failed to open file \"%s\"",
@@ -8354,8 +8586,8 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 if ((uint32_t) pos < elm * *idx) {
                     const off_t endpos = idx[1] * elm;
                     for (off_t j = *idx * elm; j < endpos; j += nbuf) {
-                        fflush(fptr); // prepare for reading
-                        ierr = fseek(fptr, j, SEEK_SET);
+                        gzflush(fptr, Z_FINISH); // prepare for reading
+                        ierr = gzseek(fptr, j, SEEK_SET);
                         if (ierr != 0) {
                             if (ibis::gVerbose > 0)
                                 logWarning("saveSelected", "failed to seek to "
@@ -8363,14 +8595,14 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                                            static_cast<long unsigned>(j),
                                            fname.c_str());
                             ierr = -4;
-                            fclose(fptr);
+                            gzclose(fptr);
                             return ierr;
                         }
 
                         off_t nbytes = (j+(off_t)nbuf <= endpos ?
                                         nbuf : endpos-j);
-                        ierr = fread(buf, 1, nbytes, fptr);
-                        if (ierr < 0) {
+                        ierr = gzread(fptr, buf, nbytes);
+                        if (ierr < nbytes) {
                             if (ibis::gVerbose > 0)
                                 logWarning("saveSelected", "failed to read "
                                            "file \"%s\" at position %lu, "
@@ -8382,9 +8614,9 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                         for (; ierr < nbytes; ++ ierr)
                             buf[ierr] = 0;
 
-                        fflush(fptr); // prepare to write
-                        ierr = fseek(fptr, pos, SEEK_SET);
-                        ierr += fwrite(buf, 1, nbytes, fptr);
+                        gzflush(fptr, Z_FINISH); // prepare to write
+                        ierr = gzseek(fptr, pos, SEEK_SET);
+                        ierr += gzwrite(fptr, buf, nbytes);
                         if (ierr < nbytes) {
                             if (ibis::gVerbose > 0)
                                 logWarning("saveSelected", "failed to write "
@@ -8402,8 +8634,8 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 }
             }
             else {
-                fflush(fptr);
-                ierr = fseek(fptr, *idx * elm, SEEK_SET);
+                gzflush(fptr, Z_FINISH);
+                ierr = gzseek(fptr, *idx * elm, SEEK_SET);
                 if (ierr != 0) {
                     if (ibis::gVerbose > 0)
                         logWarning("saveSelected", "failed to seek to "
@@ -8411,11 +8643,11 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                                    static_cast<long unsigned>(*idx * elm),
                                    fname.c_str());
                     ierr = -5;
-                    fclose(fptr);
+                    gzclose(fptr);
                     return ierr;
                 }
                 const off_t nread = elm * (idx[ix.nIndices()-1] - *idx + 1);
-                ierr = fread(buf, 1, nread, fptr);
+                ierr = gzread(fptr, buf, nread);
                 if (ierr < 0) {
                     if (ibis::gVerbose > 0)
                         logWarning("saveSelected", "failed to read "
@@ -8427,10 +8659,10 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 for (; ierr < nread; ++ ierr)
                     buf[ierr] = static_cast<char>(0);
 
-                fflush(fptr); // prepare to write
-                ierr = fseek(fptr, pos, SEEK_SET);
+                gzflush(fptr, Z_FINISH); // prepare to write
+                ierr = gzseek(fptr, pos, SEEK_SET);
                 for (uint32_t j = 0; j < ix.nIndices(); ++ j) {
-                    ierr = fwrite(buf + elm * (idx[j] - *idx), 1, elm, fptr);
+                    ierr = gzwrite(fptr, buf + elm * (idx[j] - *idx), elm);
                     if (ierr < elm) {
                         if (ibis::gVerbose > 0)
                             logWarning("saveSelected", "failed to write a "
@@ -8442,7 +8674,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 }
             }
         }
-        fclose(fptr);
+        gzclose(fptr);
         ierr = truncate(fname.c_str(), pos);
         ierr = static_cast<long>(pos / elm);
         if (ibis::gVerbose > 1)
@@ -8474,7 +8706,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
 
         purgeIndexFile(dest);
         readLock lock(this, "saveSelected");
-        FILE* sfptr = fopen(sfname.c_str(), "rb");
+        gzFile sfptr = gzopen(sfname.c_str(), "rb");
         if (sfptr == 0) {
             if (ibis::gVerbose > 0)
                 logWarning("saveSelected", "failed to open file \"%s\" for "
@@ -8482,26 +8714,26 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
             return -6;
         }
         ibis::fileManager::instance().flushFile(dfname.c_str());
-        FILE* dfptr = fopen(dfname.c_str(), "wb");
+        gzFile dfptr = gzopen(dfname.c_str(), "wb");
         if (dfptr == 0) {
             if (ibis::gVerbose > 0)
                 logWarning("saveSelected", "failed to open file \"%s\" for "
                            "writing", dfname.c_str());
-            fclose(sfptr);
+            gzclose(sfptr);
             return -7;
         }
 
         for (ibis::bitvector::indexSet ix = sel.firstIndexSet();
              ix.nIndices() > 0; ++ ix) {
             const ibis::bitvector::word_t *idx = ix.indices();
-            ierr = fseek(sfptr, *idx * elm, SEEK_SET);
+            ierr = gzseek(sfptr, *idx * elm, SEEK_SET);
             if (ierr != 0) {
                 if (ibis::gVerbose > 0)
                     logWarning("saveSelected", "failed to seek to %ld in "
                                "file \"%s\"", static_cast<long>(*idx * elm),
                                sfname.c_str());
-                fclose(sfptr);
-                fclose(dfptr);
+                gzclose(sfptr);
+                gzclose(dfptr);
                 return -8;
             }
 
@@ -8510,7 +8742,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 for (off_t j = *idx * elm; j < endblock; j += nbuf) {
                     const off_t nbytes =
                         elm * (j+(off_t)nbuf <= endblock ? nbuf : endblock-j);
-                    ierr = fread(buf, 1, nbytes, sfptr);
+                    ierr = gzread(sfptr, buf, nbytes);
                     if (ierr < 0) {
                         if (ibis::gVerbose > 0)
                             logWarning("saveSelected", "failed to read from "
@@ -8521,7 +8753,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                     }
                     for (; ierr < nbytes; ++ ierr)
                         buf[ierr] = static_cast<char>(0);
-                    ierr = fwrite(buf, 1, nbytes, dfptr);
+                    ierr = gzwrite(dfptr, buf, nbytes);
                     if (ierr < nbytes && ibis::gVerbose > 0)
                         logWarning("saveSelected", "expected to write %lu "
                                    "bytes to \"%s\", but only wrote %ld",
@@ -8531,7 +8763,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
             }
             else {
                 const off_t nbytes = elm * (idx[ix.nIndices()-1] - *idx + 1);
-                ierr = fread(buf, 1, nbytes, sfptr);
+                ierr = gzread(sfptr, buf, nbytes);
                 if (ierr < 0) {
                     if (ibis::gVerbose > 0)
                         logWarning("saveSelected", "failed to read from "
@@ -8543,7 +8775,7 @@ long ibis::column::saveSelected(const ibis::bitvector& sel, const char *dest,
                 for (; ierr < nbytes; ++ ierr)
                     buf[ierr] = static_cast<char>(0);
                 for (uint32_t j = 0; j < ix.nIndices(); ++ j) {
-                    ierr = fwrite(buf + elm * (idx[j] - *idx), 1, elm, dfptr);
+                    ierr = gzwrite(dfptr, buf + elm * (idx[j] - *idx), elm);
                     if (ierr < elm && ibis::gVerbose > 0)
                         logWarning("saveSelected", "expected to write a "
                                    "%d-byte element to \"%s\", but only "
@@ -8621,12 +8853,12 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
 
             if (cnt < nent) { // current file does not have enough entries
                 memset(buf, 0, MAX_LINE);
-                FILE *fptr = fopen(fn, "ab");
+                gzFile fptr = gzopen(fn, "ab");
                 while (cnt < nent) {
                     uint32_t nb = nent - cnt;
                     if (nb > MAX_LINE)
                         nb = MAX_LINE;
-                    ierr = fwrite(buf, 1, nb, fptr);
+                    ierr = gzwrite(fptr, buf, nb);
                     if (static_cast<uint32_t>(ierr) != nb) {
                         logWarning("truncateData", "expected to write "
                                    "%lu bytes to \"%s\", but only wrote "
@@ -8639,19 +8871,19 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
                     }
                     cnt += ierr;
                 }
-                nbyt = ftell(fptr);
-                fclose(fptr);
+                nbyt = gztell(fptr);
+                gzclose(fptr);
             }
             ierr = (ierr>=0 ? 0 : -1);
         }
         else {
             logWarning("truncateData", "failed to open \"%s\" using the "
                        "file manager, ierr=%ld", fn, ierr);
-            FILE *fptr = fopen(fn, "rb+"); // open for read and write
-            if (fptr != 0) {
+            gzFile fptr = gzopen(fn, "rb+"); // open for read and write
+            if (fptr == Z_NULL) {
                 uint32_t cnt = 0;
                 while (cnt < nent) {
-                    ierr = fread(buf, 1, MAX_LINE, fptr);
+                    ierr = gzread(fptr, buf, MAX_LINE);
                     if (ierr == 0) break;
                     int i = 0;
                     for (i = 0; cnt < nent && i < MAX_LINE; ++ i)
@@ -8666,7 +8898,7 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
                         uint32_t nb = nent - cnt;
                         if (nb > MAX_LINE)
                             nb = MAX_LINE;
-                        ierr = fwrite(buf, 1, nb, fptr);
+                        ierr = gzwrite(fptr, buf, nb);
                         if (static_cast<uint32_t>(ierr) != nb) {
                             logWarning("truncateData", "expected to write "
                                        "%lu bytes to \"%s\", but only wrote "
@@ -8679,14 +8911,14 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
                         }
                         cnt += ierr;
                     }
-                    nbyt = ftell(fptr);
+                    nbyt = gztell(fptr);
                 }
-                fclose(fptr);
+                gzclose(fptr);
                 ierr = (ierr >= 0 ? 0 : -1);
             }
             else {
                 logWarning("truncateData", "failed to open \"%s\" with "
-                           "fopen, file probably does not exist or has "
+                           "gzopen, file probably does not exist or has "
                            "wrong perssions", fn);
                 ierr = -1;
             }
@@ -8697,15 +8929,15 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
         nbyt = ibis::util::getFileSize(fn);
         nact = nbyt / elm;
         if (nact < nent) { // needs to write more entries to the file
-            FILE *fptr = fopen(fn, "ab");
-            if (fptr != 0) {
+            gzFile fptr = gzopen(fn, "ab");
+            if (fptr == Z_NULL) {
                 uint32_t cnt = nact;
                 memset(buf, 0, MAX_LINE);
                 while (cnt < nent) {
                     uint32_t nb = (nent - cnt) * elm;
                     if (nb > MAX_LINE)
                         nb = ((MAX_LINE / elm) * elm);
-                    ierr = fwrite(buf, 1, nb, fptr);
+                    ierr = gzwrite(fptr, buf, nb);
                     if (static_cast<uint32_t>(ierr) != nb) {
                         logWarning("truncateData", "expected to write "
                                    "%lu bytes to \"%s\", but only wrote "
@@ -8718,13 +8950,13 @@ long ibis::column::truncateData(const char* dir, uint32_t nent,
                     }
                     cnt += ierr;
                 }
-                nbyt = ftell(fptr);
-                fclose(fptr);
+                nbyt = gztell(fptr);
+                gzclose(fptr);
                 ierr = (ierr >= 0 ? 0 : -1);
             }
             else {
                 logWarning("truncateData", "failed to open \"%s\" with "
-                           "fopen, make sure the directory exist and has "
+                           "gzopen, make sure the directory exist and has "
                            "right perssions", fn);
                 ierr = -1;
             }
@@ -10833,8 +11065,8 @@ int ibis::column::searchSortedOOCC(const char* fname,
         return hits.sloppyCount();
     }
 
-    int fdes = UnixOpen(fname, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- column[" << fullname() << "]::searchSortedOOCC<"
             << typeid(T).name() << ">(" << fname << ", " << rng
@@ -11559,7 +11791,7 @@ template int ibis::column::searchSortedOOCC<double>
 /// An equivalent of array_t<T>::find.  It reads the open file one word at
 /// a time and therefore is likely to be very slow.
 template<typename T> uint32_t
-ibis::column::findLower(int fdes, const uint32_t nr, const T tgt) const {
+ibis::column::findLower(gzFile fdes, const uint32_t nr, const T tgt) const {
     int ierr;
     const uint32_t sz = sizeof(T);
     uint32_t left = 0, right = nr;
@@ -11623,7 +11855,7 @@ ibis::column::findLower(int fdes, const uint32_t nr, const T tgt) const {
 /// An equivalent of array_t<T>::find_upper.  It reads the open file one
 /// word at a time and therefore is likely to be very slow.
 template<typename T> uint32_t
-ibis::column::findUpper(int fdes, const uint32_t nr, const T tgt) const {
+ibis::column::findUpper(gzFile fdes, const uint32_t nr, const T tgt) const {
     int ierr;
     const uint32_t sz = sizeof(T);
     uint32_t left = 0, right = nr;
@@ -11770,8 +12002,8 @@ int ibis::column::searchSortedOOCD(const char* fname,
         evt = oss.str();
     }
     ibis::util::timer mytimer(evt.c_str(), 5);
-    int fdes = UnixOpen(fname, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to "
             << "open the named data file, errno = " << errno
@@ -11880,8 +12112,8 @@ int ibis::column::searchSortedOOCD(const char* fname,
         evt = oss.str();
     }
     ibis::util::timer mytimer(evt.c_str(), 5);
-    int fdes = UnixOpen(fname, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to "
             << "open the named data file, errno = " << errno
@@ -11993,8 +12225,8 @@ int ibis::column::searchSortedOOCD(const char* fname,
         evt = oss.str();
     }
     ibis::util::timer mytimer(evt.c_str(), 5);
-    int fdes = UnixOpen(fname, OPEN_READONLY);
-    if (fdes < 0) {
+    gzFile fdes = UnixOpen(fname, "rb");
+    if (fdes == Z_NULL) {
         LOGGER(ibis::gVerbose >= 0)
             << "Warning -- " << evt << " failed to "
             << "open the named data file, errno = " << errno
